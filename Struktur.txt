@@ -1,5 +1,9 @@
 CSP-Solver
 
+Für Gitter erstellung:
+- Algortithmus der Mithilfe von der Constrain funktion und backtracking zeichen an random stelle des arrays setzt
+    - auch hier Gitter zustand als Knoten (für backtracking)
+
 1) Backtrackingsuche ohne Constraintpropagierung und ohne Heuristik: Die Variablenbelegungen
 erfolgen mit vorgegebener fester Belegungsreihenfolge, z.B. von unten links nach oben rechts,
 kleine Werte zuerst.
