@@ -17,25 +17,29 @@ CSP-Konstruktion Lollipop
 
 CSP-Solver
 
+Für Gitter erstellung:
+- Algortithmus der Mithilfe von der Constrain funktion und backtracking zeichen an random stelle des arrays setzt
+    - auch hier Gitter zustand als Knoten (für backtracking)
+
 1) Backtrackingsuche ohne Constraintpropagierung und ohne Heuristik: Die Variablenbelegungen
 erfolgen mit vorgegebener fester Belegungsreihenfolge, z.B. von unten links nach oben rechts,
 kleine Werte zuerst.
 
-- np.ndarray() -> Gitter
-- Klasse von Constrains -> {head,h.line,v.line,empty,unseen}
-- constrain funktion -> prüft vor backtracking was möglich ist
-- Gitter zustand als Knoten (Suchbaum)
-- backtracking funktion
+    - np.ndarray() -> Gitter
+    - Klasse von Constrains -> {head,h.line,v.line,empty,unseen}
+    - constrain funktion -> prüft vor backtracking was möglich ist
+    - Gitter zustand als Knoten (Suchbaum)
+    - backtracking funktion
 
 2) Forward Checking-Suche ohne Heuristik: Mit derselben Belegungsreihenfolge wie in 1.
 
-- Forwardtracking Funktion
+    - Forwardtracking Funktion
 
 3) Forward Checking-Suche mit einer geeigneten Heuristik: Infrage kommen die aus der Vorlesung
 bekannten Heuristiken. Sie können diese aber auch um eine domänenspezifische Heuristik
 ergänzen, wenn Ihnen eine solche in den Sinn kommt.
 
-- heuristik (ggf. 2 verbinden)
+    - heuristik (ggf. 2 verbinden)
 
 4) Suche mit Heuristik in Kombination mit einer geeigneten Konsistenztechnik: Setzen Sie 1- und 2-
 Konsistenz sinnvoll im Suchverfahren ein. Mindestanforderung ist, dass der AC3-Algorithmus
