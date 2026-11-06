@@ -10,6 +10,11 @@ CSP-Konstruktion Lollipop
         - Jedes Raetsel hat eine Menge von Constrains, welche die Schwierigkeit bestimmen 
         - Eine Constraint-Funktion soll die Menge der Constraints eines Gitters zurueckgeben
 
+2)
+    Konstruktion eines Raetsel
+        - In einem leeren Gitter wird zufaellig eine Variable belegt
+        - 
+
 CSP-Solver
 
 1) Backtrackingsuche ohne Constraintpropagierung und ohne Heuristik: Die Variablenbelegungen
