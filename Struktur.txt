@@ -10,6 +10,13 @@ CSP-Konstruktion Lollipop
         - Jedes Raetsel hat eine Menge von Constrains, welche die Schwierigkeit bestimmen 
         - Eine Constraint-Funktion soll die Menge der Constraints eines Gitters zurueckgeben
 
+        Implementierung Constrains:
+            - CSP class {Self,head,h.line,v.line,empty}
+            - Constrain tuple -> mit tupel von zellen (sinnvoller)
+               - constrain(scope,check)
+                    - scope = tupel von zellen
+                    - check = function
+
 2)
     Konstruktion eines Raetsel
         - In einem leeren Gitter wird zufaellig eine Variable belegt
