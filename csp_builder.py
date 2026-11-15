@@ -15,6 +15,10 @@ class Difficulty(Enum):
     MEDIUM = 0
     HARD = 1
 
+class Zelle:
+    def __init__(self, zeile: int, spalte: int):
+        self.zeile = zeile
+        self.spalte = spalte
     
 # Constraint zwischen Variablen
 class Constraint():
@@ -28,7 +32,10 @@ class Constraint():
 
 class LollipopGitter():
     def __init__(self, size : int, difficulty : Difficulty):
-        self.variables = list(range(size**2))                           # Liste der Zellen im Gitter als Liste
+        self.variables = list() # Liste der Zellen im Gitter als Liste
+        for i in range(size):
+            for j in range(size):
+                self.variables.append(Zelle(i, j))
         self.domains = {V : list(Domain) for V in self.variables}   # Dict Mapping aller Zellen auf ihren Wertebereich
         self.constraints = {}
         for variable in self.variables:
