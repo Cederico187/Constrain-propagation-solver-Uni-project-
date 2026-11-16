@@ -40,7 +40,7 @@ class adjacentCellConstraint(Constraint):
     def satisfied(self, assignment: Dict) -> bool:
         match assignment[self.cell]:
             case "EMPTY":
-                pass
+                return True
             case "HORIZONTAL_LINE":
                 if self.cell_above in assignment and assignment[self.cell_above] != "EMPTY":
                     return False
@@ -72,6 +72,91 @@ class adjacentCellConstraint(Constraint):
                         return False
             case "CIRCLE":
                 if self.cell_right in assignment:
+                    if assignment[self.cell_right] == "CIRCLE" or assignment[self.cell_right] == "VERTICAL_LINE" :
+                        return False
+                if self.cell_left in assignment:
+                    if assignment[self.cell_left] == "CIRCLE" or assignment[self.cell_left] == "VERTICAL_LINE" :
+                        return False
+                if self.cell_above in assignment:
+                    if assignment[self.cell_above] == "CIRCLE" or assignment[self.cell_above] == "HORIZONTAL_LINE" :
+                        return False
+                if self.cell_below in assignment:
+                    if assignment[self.cell_below] == "CIRCLE" or assignment[self.cell_below] == "HORIZONTAL_LINE" :
+                        return False
+                if self.cell_right in assignment and self.cell_left in assignment and self.cell_above in assignment and self.cell_below in assignment:
+                    if assignment[self.cell_above] == assignment[self.cell_below] == assignment[self.cell_right] == assignment[self.cell_left]:
+                        return False
+        return True
+
+
+class RowColumnConstraint():
+    def __init__(self, cell : Tuple[int,int], size: int) -> None:
+        self.cell = cell
+        self.row = cell[0]
+        self.column = cell[1]
+        self.size = size
+        super().__init__([(self.row,j) for j in range(self.size)] + [(i,self.column) for i in range(self.size)])
+
+    def satisfied(self, assignment: Dict) -> bool:
+        value = assignment[self.cell]
+        error = False
+        sightbreak = False
+        last_cell = None
+        for i in range(self.row,self.size):
+            current_cell = (self.row,i)
+            if current_cell in assignment:
+                if assignment[current_cell] != value and assignment[current_cell] != "EMPTY":
+                    sightbreak = True
+                last_cell = current_cell
+
+        if last_cell != None:
+            if assignment[last_cell] == value:
+                if (sightbreak ==False):
+                    error = 1
+
+
+        sightbreak = False
+        last_cell = None
+        for i in reversed(range(self.row)):
+            current_cell = (self.row, i)
+            if current_cell in assignment:
+                if assignment[current_cell] != value and assignment[current_cell] != "EMPTY":
+                    sightbreak = True
+                last_cell = current_cell
+        if last_cell != None:
+            if assignment[last_cell] == value:
+                if sightbreak == False:
+                    error = 1
+
+        sightbreak = False
+        last_cell = None
+        for i in range(self.column, self.size):
+            current_cell = (i, self.column)
+            if current_cell in assignment:
+                if assignment[current_cell] != value and assignment[current_cell] != "EMPTY":
+                    sightbreak = True
+                last_cell = current_cell
+        if last_cell != None:
+            if assignment[last_cell] == value:
+                if (sightbreak == False):
+                    error = 1
+
+        sightbreak = False
+        last_cell = None
+        for i in reversed(range(self.column)):
+            current_cell = (i,self.column)
+            if current_cell in assignment:
+                if assignment[current_cell] != value and assignment[current_cell] != "EMPTY":
+                    sightbreak = True
+                last_cell = current_cell
+        if last_cell is not None:
+            if assignment[last_cell] == value:
+                if (sightbreak == False):
+                    error = 1
+        if error == 0:
+            return True
+        else:
+            return False
 
 
 
@@ -80,7 +165,7 @@ class LollipopGitter():
         self.variables = list() # Liste der Zellen im Gitter
         for i in range(size):
             for j in range(size):
-                self.variables.append((i, j)) #
+                self.variables.append((i, j))
         self.domains = {V : list(Domain) for V in self.variables}   # Dict Mapping aller Zellen auf ihren Wertebereich
         self.constraints = {}
         for variable in self.variables:
@@ -102,5 +187,5 @@ class LollipopGitter():
         return True
 
     def build_puzzle(self, difficulty: Difficulty) -> None:
-        self.add_constraint(self, Constraint)
+        self.add_constraint(self)
 
