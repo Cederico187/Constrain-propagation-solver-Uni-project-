@@ -21,7 +21,7 @@ class Zelle:
         self.spalte = spalte
     
 # Constraint zwischen Variablen
-class Constraint():
+class Constraint(ABC):
     def __init__(self, variables: List):
         self.variables = variables
 
