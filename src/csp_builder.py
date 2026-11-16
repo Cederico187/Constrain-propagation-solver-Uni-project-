@@ -71,20 +71,29 @@ class adjacentCellConstraint(Constraint):
                     if assignment[self.cell_above] == assignment[self.cell_below]:
                         return False
             case "CIRCLE":
+                left, right, above, below = 0
                 if self.cell_right in assignment:
                     if assignment[self.cell_right] == "CIRCLE" or assignment[self.cell_right] == "VERTICAL_LINE" :
                         return False
+                    if assignment[self.cell_right] == "HORIZONTAL_LINE":
+                        right = 1
                 if self.cell_left in assignment:
                     if assignment[self.cell_left] == "CIRCLE" or assignment[self.cell_left] == "VERTICAL_LINE" :
                         return False
+                    if assignment[self.cell_left] == "HORIZONTAL_LINE":
+                        left = 1
                 if self.cell_above in assignment:
                     if assignment[self.cell_above] == "CIRCLE" or assignment[self.cell_above] == "HORIZONTAL_LINE" :
                         return False
+                    if assignment[self.cell_above] == "VERTICAL_LINE":
+                        above = 1
                 if self.cell_below in assignment:
                     if assignment[self.cell_below] == "CIRCLE" or assignment[self.cell_below] == "HORIZONTAL_LINE" :
                         return False
+                    if assignment[self.cell_below] == "VERTICAL_LINE":
+                        below = 1
                 if self.cell_right in assignment and self.cell_left in assignment and self.cell_above in assignment and self.cell_below in assignment:
-                    if assignment[self.cell_above] == assignment[self.cell_below] == assignment[self.cell_right] == assignment[self.cell_left]:
+                    if left + right + above + below != 1:
                         return False
         return True
 
