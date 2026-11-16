@@ -40,7 +40,7 @@ class adjacentCellConstraint(Constraint):
     def satisfied(self, assignment: Dict) -> bool:
         match assignment[self.cell]:
             case "EMPTY":
-                pass
+                return True
             case "HORIZONTAL_LINE":
                 if self.cell_above in assignment and assignment[self.cell_above] != "EMPTY":
                     return False
@@ -72,6 +72,31 @@ class adjacentCellConstraint(Constraint):
                         return False
             case "CIRCLE":
                 if self.cell_right in assignment:
+                    if assignment[self.cell_right] == "CIRCLE" or assignment[self.cell_right] == "VERTICAL_LINE" :
+                        return False
+                if self.cell_left in assignment:
+                    if assignment[self.cell_left] == "CIRCLE" or assignment[self.cell_left] == "VERTICAL_LINE" :
+                        return False
+                if self.cell_above in assignment:
+                    if assignment[self.cell_above] == "CIRCLE" or assignment[self.cell_above] == "HORIZONTAL_LINE" :
+                        return False
+                if self.cell_below in assignment:
+                    if assignment[self.cell_below] == "CIRCLE" or assignment[self.cell_below] == "HORIZONTAL_LINE" :
+                        return False
+                if self.cell_right in assignment and self.cell_left in assignment and self.cell_above in assignment and self.cell_below in assignment:
+                    if assignment[self.cell_above] == assignment[self.cell_below] == assignment[self.cell_right] == assignment[self.cell_left]:
+                        return False
+        return True
+
+
+class RowColumnConstraint():
+    def __init__(self, cell : Tuple[int,int], size: int) -> None:
+        self.row = cell[0]
+        self.column = cell[1]
+        self.size = size
+        super().__init__([(self.row,j) for j in range(self.size)] + [(i,self.column) for i in range(self.size)])
+
+    def satisfied(self, assignment: Dict) -> bool:
 
 
 
@@ -80,7 +105,7 @@ class LollipopGitter():
         self.variables = list() # Liste der Zellen im Gitter
         for i in range(size):
             for j in range(size):
-                self.variables.append((i, j)) #
+                self.variables.append((i, j))
         self.domains = {V : list(Domain) for V in self.variables}   # Dict Mapping aller Zellen auf ihren Wertebereich
         self.constraints = {}
         for variable in self.variables:
