@@ -1,3 +1,4 @@
+from asyncio.windows_events import NULL
 from enum import Enum
 from typing import List, Dict, Generic, Tuple
 from abc import ABC, abstractmethod
@@ -25,9 +26,10 @@ class Constraint(ABC):
 
     @abstractmethod
     def satisfied(self, assignment: Dict) -> bool:
+        pass
 
-class adjacentCellConstraint(Constraint):
-    def __init__(self, cell: Tuple[int, int]) -> None:
+class AdjacentCellConstraint(Constraint):
+    def __init__(self, cell: Tuple[int, int], size : int) -> None:
         x = cell[0]
         y = cell[1]
         self.cell = cell
@@ -35,7 +37,16 @@ class adjacentCellConstraint(Constraint):
         self.cell_below = (x, y - 1)
         self.cell_left = (x - 1, y)
         self.cell_right = (x + 1, y)
-        super().__init__([cell,self.cell_above, self.cell_below, self.cell_left, self.cell_right])
+        variables = []
+        if all(0 <= ele < size for ele in self.cell_above):
+            variables.append(self.cell_above)
+        if all(0 <= ele < size for ele in self.cell_below):
+            variables.append(self.cell_below)
+        if all(0 <= ele < size for ele in self.cell_left):
+            variables.append(self.cell_left)
+        if all(0 <= ele < size for ele in self.cell_right):
+            variables.append(self.cell_right)
+        super().__init__(variables)
 
     def satisfied(self, assignment: Dict) -> bool:
         match assignment[self.cell]:
@@ -98,7 +109,7 @@ class adjacentCellConstraint(Constraint):
         return True
 
 
-class RowColumnConstraint():
+class RowColumnConstraint(Constraint):
     def __init__(self, cell : Tuple[int,int], size: int) -> None:
         self.cell = cell
         self.row = cell[0]
@@ -171,6 +182,7 @@ class RowColumnConstraint():
 
 class LollipopGitter():
     def __init__(self, size : int):
+        self.size = size
         self.variables = list() # Liste der Zellen im Gitter
         for i in range(size):
             for j in range(size):
@@ -195,6 +207,9 @@ class LollipopGitter():
                 return False
         return True
 
-    def build_puzzle(self, difficulty: Difficulty) -> None:
-        self.add_constraint(self)
-
+    def build_puzzle(self, difficulty: Difficulty) -> Dict:
+        for x in self.variables:
+            self.add_constraint(RowColumnConstraint(x, self.size))
+            self.add_constraint(AdjacentCellConstraint(x, self.size))
+        assignment = dict()
+        return assignment
