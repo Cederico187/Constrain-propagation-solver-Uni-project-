@@ -113,7 +113,7 @@ class RowColumnConstraint():
         last_cell = None
         for i in range(self.row,self.size):
             current_cell = (self.row,i)
-            if current_cell in assignment:
+            while current_cell in assignment:
                 if assignment[current_cell] != value and assignment[current_cell] != "EMPTY":
                     sightbreak = True
                 last_cell = current_cell
@@ -128,7 +128,7 @@ class RowColumnConstraint():
         last_cell = None
         for i in reversed(range(self.row)):
             current_cell = (self.row, i)
-            if current_cell in assignment:
+            while current_cell in assignment:
                 if assignment[current_cell] != value and assignment[current_cell] != "EMPTY":
                     sightbreak = True
                 last_cell = current_cell
@@ -141,7 +141,7 @@ class RowColumnConstraint():
         last_cell = None
         for i in range(self.column, self.size):
             current_cell = (i, self.column)
-            if current_cell in assignment:
+            while current_cell in assignment:
                 if assignment[current_cell] != value and assignment[current_cell] != "EMPTY":
                     sightbreak = True
                 last_cell = current_cell
@@ -154,7 +154,7 @@ class RowColumnConstraint():
         last_cell = None
         for i in reversed(range(self.column)):
             current_cell = (i,self.column)
-            if current_cell in assignment:
+            while current_cell in assignment:
                 if assignment[current_cell] != value and assignment[current_cell] != "EMPTY":
                     sightbreak = True
                 last_cell = current_cell
