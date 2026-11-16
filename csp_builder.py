@@ -37,7 +37,7 @@ class adjacentCellConstraint(Constraint):
         self.cell_right = (x + 1, y)
         super().__init__([cell,self.cell_above, self.cell_below, self.cell_left, self.cell_right])
 
-    def consistent(self, assignment: Dict) -> bool:
+    def satisfied(self, assignment: Dict) -> bool:
         match assignment[self.cell]:
             case "EMPTY":
                 pass
