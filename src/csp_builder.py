@@ -1,9 +1,6 @@
-from asyncio.windows_events import NULL
 from enum import Enum
 from typing import List, Dict, Generic, Tuple
 from abc import ABC, abstractmethod
-
-
 
 
 # Wertebereich für Zellen im Gitter
@@ -33,10 +30,10 @@ class AdjacentCellConstraint(Constraint):
         x = cell[0]
         y = cell[1]
         self.cell = cell
-        self.cell_above = (x, y + 1)
-        self.cell_below = (x, y - 1)
-        self.cell_left = (x - 1, y)
-        self.cell_right = (x + 1, y)
+        self.cell_above = (x-1, y)
+        self.cell_below = (x+1, y)
+        self.cell_left = (x, y-1)
+        self.cell_right = (x, y+1)
         variables = []
         if all(0 <= ele < size for ele in self.cell_above):
             variables.append(self.cell_above)
@@ -49,61 +46,86 @@ class AdjacentCellConstraint(Constraint):
         super().__init__(variables)
 
     def satisfied(self, assignment: Dict) -> bool:
+        if self.cell not in assignment:
+            return True
         match assignment[self.cell]:
-            case "EMPTY":
+            case Domain.EMPTY:
                 return True
-            case "HORIZONTAL_LINE":
-                if self.cell_above in assignment and assignment[self.cell_above] != "EMPTY":
+            case Domain.HORIZONTAL_LINE:
+                yes = 1
+                if self.cell_above in assignment and assignment[self.cell_above] != Domain.EMPTY:
                     return False
-                if self.cell_below in assignment and assignment[self.cell_below] != "EMPTY":
+                if self.cell_below in assignment and assignment[self.cell_below] != Domain.EMPTY:
                     return False
                 if self.cell_left in assignment:
-                    if assignment[self.cell_left] == "VERTICAL_LINE" or assignment[self.cell_left] == "HORIZONTAL_LINE":
+                    if assignment[self.cell_left] == Domain.VERTICAL_LINE or assignment[self.cell_left] == Domain.HORIZONTAL_LINE:
                         return False
+                    if assignment[self.cell_left] == Domain.CIRCLE:
+                        yes += 1
+                    if assignment[self.cell_left] == Domain.EMPTY:
+                        yes -= 1
                 if self.cell_right in assignment:
-                    if assignment[self.cell_right] == "VERTICAL_LINE" or assignment[self.cell_right] == "HORIZONTAL_LINE":
+                    if assignment[self.cell_right] == Domain.VERTICAL_LINE or assignment[self.cell_right] == Domain.HORIZONTAL_LINE:
                         return False
+                    if assignment[self.cell_right] == Domain.CIRCLE:
+                        yes += 1
+                    if assignment[self.cell_right] == Domain.EMPTY:
+                        yes -= 1
                 if self.cell_right in assignment and self.cell_left in assignment:
                     if assignment[self.cell_left] == assignment[self.cell_right]:
                         return False
-
-            case "VERTICAL_LINE":
-                if self.cell_right in assignment and assignment[self.cell_right] != "EMPTY":
+                if yes < 1:
                     return False
-                if self.cell_left in assignment and assignment[self.cell_left] != "EMPTY":
+                
+
+            case Domain.VERTICAL_LINE:
+                yes = 1
+                if self.cell_right in assignment and assignment[self.cell_right] != Domain.EMPTY:
+                    return False
+                if self.cell_left in assignment and assignment[self.cell_left] != Domain.EMPTY:
                     return False
                 if self.cell_above in assignment:
-                    if assignment[self.cell_above] == "VERTICAL_LINE" or assignment[self.cell_above] == "HORIZONTAL_LINE":
+                    if assignment[self.cell_above] == Domain.VERTICAL_LINE or assignment[self.cell_above] == Domain.HORIZONTAL_LINE:
                         return False
+                    if assignment[self.cell_above] == Domain.CIRCLE:
+                        yes += 1
+                    if assignment[self.cell_above] == Domain.EMPTY:
+                        yes -= 1
                 if self.cell_below in assignment:
-                    if assignment[self.cell_below] == "VERTICAL_LINE" or assignment[self.cell_below] == "HORIZONTAL_LINE":
+                    if assignment[self.cell_below] == Domain.VERTICAL_LINE or assignment[self.cell_below] == Domain.HORIZONTAL_LINE:
                         return False
+                    if assignment[self.cell_below] == Domain.CIRCLE:
+                        yes += 1
+                    if assignment[self.cell_below] == Domain.EMPTY:
+                        yes -= 1
                 if self.cell_above in assignment and self.cell_below in assignment:
                     if assignment[self.cell_above] == assignment[self.cell_below]:
                         return False
-            case "CIRCLE":
-                left, right, above, below = 0
+                if yes < 1:
+                    return False
+            case Domain.CIRCLE:
+                left = right = above = below = 0
                 if self.cell_right in assignment:
-                    if assignment[self.cell_right] == "CIRCLE" or assignment[self.cell_right] == "VERTICAL_LINE" :
+                    if assignment[self.cell_right] == Domain.CIRCLE or assignment[self.cell_right] == Domain.VERTICAL_LINE :
                         return False
-                    if assignment[self.cell_right] == "HORIZONTAL_LINE":
+                    if assignment[self.cell_right] == Domain.HORIZONTAL_LINE:
                         right = 1
                 if self.cell_left in assignment:
-                    if assignment[self.cell_left] == "CIRCLE" or assignment[self.cell_left] == "VERTICAL_LINE" :
+                    if assignment[self.cell_left] == Domain.CIRCLE or assignment[self.cell_left] == Domain.VERTICAL_LINE :
                         return False
-                    if assignment[self.cell_left] == "HORIZONTAL_LINE":
+                    if assignment[self.cell_left] == Domain.HORIZONTAL_LINE:
                         left = 1
                 if self.cell_above in assignment:
-                    if assignment[self.cell_above] == "CIRCLE" or assignment[self.cell_above] == "HORIZONTAL_LINE" :
+                    if assignment[self.cell_above] == Domain.CIRCLE or assignment[self.cell_above] == Domain.HORIZONTAL_LINE :
                         return False
-                    if assignment[self.cell_above] == "VERTICAL_LINE":
+                    if assignment[self.cell_above] == Domain.VERTICAL_LINE:
                         above = 1
                 if self.cell_below in assignment:
-                    if assignment[self.cell_below] == "CIRCLE" or assignment[self.cell_below] == "HORIZONTAL_LINE" :
+                    if assignment[self.cell_below] == Domain.CIRCLE or assignment[self.cell_below] == Domain.HORIZONTAL_LINE :
                         return False
-                    if assignment[self.cell_below] == "VERTICAL_LINE":
+                    if assignment[self.cell_below] == Domain.VERTICAL_LINE:
                         below = 1
-                if self.cell_right in assignment and self.cell_left in assignment and self.cell_above in assignment and self.cell_below in assignment:
+                if (cell in assignment for cell in self.variables):
                     if left + right + above + below != 1:
                         return False
         return True
@@ -118,14 +140,19 @@ class RowColumnConstraint(Constraint):
         super().__init__([(self.row,j) for j in range(self.size)] + [(i,self.column) for i in range(self.size)])
 
     def satisfied(self, assignment: Dict) -> bool:
-        value = assignment[self.cell]
+        if self.cell in assignment:
+            value = assignment[self.cell]
+        else:
+            return True
+        if value == Domain.EMPTY:
+            return True
         error = False
         sightbreak = False
         last_cell = None
-        for i in range(self.row,self.size):
+        for i in range(self.column+1,self.size):
             current_cell = (self.row,i)
             if current_cell in assignment:
-                if assignment[current_cell] != value and assignment[current_cell] != "EMPTY":
+                if assignment[current_cell] != value and assignment[current_cell] != Domain.EMPTY:
                     sightbreak = True
                 last_cell = current_cell
             else:
@@ -138,10 +165,10 @@ class RowColumnConstraint(Constraint):
 
         sightbreak = False
         last_cell = None
-        for i in reversed(range(self.row)):
+        for i in reversed(range(self.column-1)):
             current_cell = (self.row, i)
             if current_cell in assignment:
-                if assignment[current_cell] != value and assignment[current_cell] != "EMPTY":
+                if assignment[current_cell] != value and assignment[current_cell] != Domain.EMPTY:
                     sightbreak = True
                 last_cell = current_cell
             else:
@@ -153,10 +180,10 @@ class RowColumnConstraint(Constraint):
 
         sightbreak = False
         last_cell = None
-        for i in range(self.column, self.size):
+        for i in range(self.row+1, self.size):
             current_cell = (i, self.column)
             if current_cell in assignment:
-                if assignment[current_cell] != value and assignment[current_cell] != "EMPTY":
+                if assignment[current_cell] != value and assignment[current_cell] != Domain.EMPTY:
                     sightbreak = True
                 last_cell = current_cell
             else: 
@@ -168,10 +195,10 @@ class RowColumnConstraint(Constraint):
 
         sightbreak = False
         last_cell = None
-        for i in reversed(range(self.column)):
+        for i in reversed(range(self.row-1)):
             current_cell = (i,self.column)
             if current_cell in assignment:
-                if assignment[current_cell] != value and assignment[current_cell] != "EMPTY":
+                if assignment[current_cell] != value and assignment[current_cell] != Domain.EMPTY:
                     sightbreak = True
                 last_cell = current_cell
             else:
@@ -210,8 +237,11 @@ class LollipopGitter():
 
     def consistent(self, variable: int, assignment: Dict) -> bool:
         for constraint in self.constraints[variable]:
-            if not constraint.satisfied(assignment):
-                return False
+            for var in constraint.variables:
+                if var in assignment:
+                    for con in self.constraints[var]:
+                        if not con.satisfied(assignment):
+                            return False
         return True
 
     def build_puzzle(self, difficulty: Difficulty) -> Dict:
@@ -219,4 +249,6 @@ class LollipopGitter():
             self.add_constraint(RowColumnConstraint(x, self.size))
             self.add_constraint(AdjacentCellConstraint(x, self.size))
         assignment = dict()
+        assignment[(3,3)] = Domain.CIRCLE
+        assignment[(0,3)] = Domain.CIRCLE
         return assignment
