@@ -2,6 +2,7 @@ from enum import Enum
 from typing import List, Dict, Generic, Tuple
 from abc import ABC, abstractmethod
 
+#fehler -> adjacenzcellconstraint?
 
 # Wertebereich für Zellen im Gitter
 class Domain(Enum):
@@ -74,8 +75,9 @@ class AdjacentCellConstraint(Constraint):
                 if self.cell_right in assignment and self.cell_left in assignment:
                     if assignment[self.cell_left] == assignment[self.cell_right]:
                         return False
-                if yes < 1:
-                    return False
+                if self.cell_left not in self.variables or self.cell_right not in self.variables:
+                    if yes < 1:
+                        return False
                 
 
             case Domain.VERTICAL_LINE:
@@ -101,8 +103,9 @@ class AdjacentCellConstraint(Constraint):
                 if self.cell_above in assignment and self.cell_below in assignment:
                     if assignment[self.cell_above] == assignment[self.cell_below]:
                         return False
-                if yes < 1:
-                    return False
+                if self.cell_above not in self.variables or self.cell_below not in self.variables:
+                    if yes < 1:
+                        return False
             case Domain.CIRCLE:
                 left = right = above = below = 0
                 if self.cell_right in assignment:
@@ -125,7 +128,7 @@ class AdjacentCellConstraint(Constraint):
                         return False
                     if assignment[self.cell_below] == Domain.VERTICAL_LINE:
                         below = 1
-                if (cell in assignment for cell in self.variables):
+                if all(cell in assignment for cell in self.variables):
                     if left + right + above + below != 1:
                         return False
         return True
@@ -137,7 +140,7 @@ class RowColumnConstraint(Constraint):
         self.row = cell[0]
         self.column = cell[1]
         self.size = size
-        super().__init__([(self.row,j) for j in range(self.size)] + [(i,self.column) for i in range(self.size)])
+        super().__init__([(self.row,j) for j in range(self.column)] + [(self.row,j) for j in range(self.column+1, self.size)] + [(i,self.column) for i in range(self.size)])
 
     def satisfied(self, assignment: Dict) -> bool:
         if self.cell in assignment:
@@ -155,6 +158,8 @@ class RowColumnConstraint(Constraint):
                 if assignment[current_cell] != value and assignment[current_cell] != Domain.EMPTY:
                     sightbreak = True
                 last_cell = current_cell
+                if(assignment[last_cell] == value):
+                    break
             else:
                 break
         if last_cell != None:
@@ -165,12 +170,14 @@ class RowColumnConstraint(Constraint):
 
         sightbreak = False
         last_cell = None
-        for i in reversed(range(self.column-1)):
+        for i in reversed(range(self.column)):
             current_cell = (self.row, i)
             if current_cell in assignment:
                 if assignment[current_cell] != value and assignment[current_cell] != Domain.EMPTY:
                     sightbreak = True
                 last_cell = current_cell
+                if(assignment[last_cell] == value):
+                    break
             else:
                 break
         if last_cell != None:
@@ -186,6 +193,8 @@ class RowColumnConstraint(Constraint):
                 if assignment[current_cell] != value and assignment[current_cell] != Domain.EMPTY:
                     sightbreak = True
                 last_cell = current_cell
+                if(assignment[last_cell] == value):
+                    break
             else: 
                 break
         if last_cell != None:
@@ -195,12 +204,14 @@ class RowColumnConstraint(Constraint):
 
         sightbreak = False
         last_cell = None
-        for i in reversed(range(self.row-1)):
+        for i in reversed(range(self.row)):
             current_cell = (i,self.column)
             if current_cell in assignment:
                 if assignment[current_cell] != value and assignment[current_cell] != Domain.EMPTY:
                     sightbreak = True
                 last_cell = current_cell
+                if(assignment[last_cell] == value):
+                    break
             else:
                 break
         if last_cell is not None:
@@ -235,13 +246,10 @@ class LollipopGitter():
             else:
                 self.constraints[variable].append(constraint)
 
-    def consistent(self, variable: int, assignment: Dict) -> bool:
+    def consistent(self, variable: Tuple[int,int], assignment: Dict) -> bool:
         for constraint in self.constraints[variable]:
-            for var in constraint.variables:
-                if var in assignment:
-                    for con in self.constraints[var]:
-                        if not con.satisfied(assignment):
-                            return False
+            if not constraint.satisfied(assignment):
+                return False
         return True
 
     def build_puzzle(self, difficulty: Difficulty) -> Dict:
@@ -249,6 +257,18 @@ class LollipopGitter():
             self.add_constraint(RowColumnConstraint(x, self.size))
             self.add_constraint(AdjacentCellConstraint(x, self.size))
         assignment = dict()
-        assignment[(3,3)] = Domain.CIRCLE
-        assignment[(0,3)] = Domain.CIRCLE
+        assignment[(0,1)] = Domain.HORIZONTAL_LINE
+        assignment[(0,7)] = Domain.CIRCLE
+        assignment[(1,9)] = Domain.CIRCLE
+        assignment[(2,0)] = Domain.CIRCLE
+        assignment[(2,5)] = Domain.CIRCLE
+        assignment[(2,7)] = Domain.HORIZONTAL_LINE
+        assignment[(3,2)] = Domain.HORIZONTAL_LINE
+        assignment[(4,8)] = Domain.HORIZONTAL_LINE
+        assignment[(7,1)] = Domain.HORIZONTAL_LINE
+        assignment[(7,4)] = Domain.VERTICAL_LINE
+        assignment[(7,8)] = Domain.CIRCLE
+        assignment[(8,2)] = Domain.HORIZONTAL_LINE
+        assignment[(9,8)] = Domain.HORIZONTAL_LINE
+        assignment[(9,4)] = Domain.CIRCLE
         return assignment

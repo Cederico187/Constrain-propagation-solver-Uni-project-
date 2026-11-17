@@ -1,4 +1,5 @@
 import csp_builder as csp
+import operator
 
 def backtracking_search(gitter : csp.LollipopGitter, assignment):
     # assignment is complete if every variable is assigned (our base case)
@@ -21,7 +22,9 @@ def backtracking_search(gitter : csp.LollipopGitter, assignment):
                 return result
     return None
 
-gitter = csp.LollipopGitter(4)
+gitter = csp.LollipopGitter(10)
 assignment = gitter.build_puzzle(csp.Difficulty.HARD)
 solution = backtracking_search(gitter,assignment)
-print(solution)
+sorted = dict(sorted(solution.items(), key = operator.itemgetter(0)))
+for key, value in sorted.items():
+    print(f"Cell: {key} -> Belegung: {value}" )
