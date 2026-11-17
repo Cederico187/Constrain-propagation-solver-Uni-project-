@@ -21,7 +21,7 @@ def backtracking_search(gitter : csp.LollipopGitter, assignment):
                 return result
     return None
 
-gitter = csp.LollipopGitter(3)
+gitter = csp.LollipopGitter(2)
 assignment = gitter.build_puzzle(csp.Difficulty.HARD)
 solution = backtracking_search(gitter,assignment)
 print(solution)

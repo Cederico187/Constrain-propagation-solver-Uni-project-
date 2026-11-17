@@ -124,11 +124,12 @@ class RowColumnConstraint(Constraint):
         last_cell = None
         for i in range(self.row,self.size):
             current_cell = (self.row,i)
-            while current_cell in assignment:
+            if current_cell in assignment:
                 if assignment[current_cell] != value and assignment[current_cell] != "EMPTY":
                     sightbreak = True
                 last_cell = current_cell
-
+            else:
+                break
         if last_cell != None:
             if assignment[last_cell] == value:
                 if (sightbreak ==False):
@@ -139,10 +140,12 @@ class RowColumnConstraint(Constraint):
         last_cell = None
         for i in reversed(range(self.row)):
             current_cell = (self.row, i)
-            while current_cell in assignment:
+            if current_cell in assignment:
                 if assignment[current_cell] != value and assignment[current_cell] != "EMPTY":
                     sightbreak = True
                 last_cell = current_cell
+            else:
+                break
         if last_cell != None:
             if assignment[last_cell] == value:
                 if sightbreak == False:
@@ -152,10 +155,12 @@ class RowColumnConstraint(Constraint):
         last_cell = None
         for i in range(self.column, self.size):
             current_cell = (i, self.column)
-            while current_cell in assignment:
+            if current_cell in assignment:
                 if assignment[current_cell] != value and assignment[current_cell] != "EMPTY":
                     sightbreak = True
                 last_cell = current_cell
+            else: 
+                break
         if last_cell != None:
             if assignment[last_cell] == value:
                 if (sightbreak == False):
@@ -165,10 +170,12 @@ class RowColumnConstraint(Constraint):
         last_cell = None
         for i in reversed(range(self.column)):
             current_cell = (i,self.column)
-            while current_cell in assignment:
+            if current_cell in assignment:
                 if assignment[current_cell] != value and assignment[current_cell] != "EMPTY":
                     sightbreak = True
                 last_cell = current_cell
+            else:
+                break
         if last_cell is not None:
             if assignment[last_cell] == value:
                 if (sightbreak == False):
