@@ -1,6 +1,4 @@
-SHELL := /bin/bash
+shell := /bin/bash
 
-solve:
-	python3 csp_solver.py
-
-
+build:
+	cd src && python3 csp_builder.py
