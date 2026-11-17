@@ -228,6 +228,42 @@ class LollipopGitter():
             if variable not in self.domains:
                 raise LookupError("Every variable should have a domain assigned to it.")
 
+    def toString(self, assignment: Dict):
+        # •, ─, │, ┼
+        # string = "•─" * self.size + "•" + "\n"
+        symbols = {
+            Domain.EMPTY: " ",
+            Domain.HORIZONTAL_LINE: "━",
+            Domain.VERTICAL_LINE: "┃",
+            Domain.CIRCLE: "o",
+        }
+        string = " "
+        for i in range(self.size):
+            string += " %d" % i
+        string += "\n"
+        for i in range(self.size*2+1):
+            if(i % 2 == 1):
+                string += "%d" % ((i - 1) // 2)
+                for j in range(self.size*2):
+                    if(j % 2 == 1):
+                        x = (i - 1) // 2
+                        y = (j - 1) // 2
+                        
+                        string += symbols.get(assignment.get((y, x)), " ")
+
+                    else:
+                        string += "│"
+
+                string += "│\n"   
+
+            else:
+                string += " "
+                string += "•─" * self.size + "•" + "\n"
+
+        return string
+
+        
+
     def add_constraint(self, constraint: Constraint) -> None:
         for variable in constraint.variables:
             if variable not in self.variables:
@@ -252,3 +288,9 @@ class LollipopGitter():
         assignment[(3,3)] = Domain.CIRCLE
         assignment[(0,3)] = Domain.CIRCLE
         return assignment
+    
+if __name__ == '__main__':
+    x = LollipopGitter(4)
+    assignment = x.build_puzzle(Difficulty.HARD)
+
+    print(x.toString(assignment))
