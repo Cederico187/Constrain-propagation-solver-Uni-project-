@@ -129,6 +129,8 @@ class AdjacentCellConstraint(Constraint):
                         return False
                     if assignment[self.cell_below] == Domain.VERTICAL_LINE:
                         below = 1
+                if left + right + above + below >1:
+                    return False
                 
                 if all(cell in assignment for cell in self.variables):
                     if left + right + above + below != 1:
