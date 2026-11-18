@@ -31,6 +31,9 @@ import sys
 import time
 from pathlib import Path
 
+
+search_variant = "forward_checking_search"
+
 # Ordner dieser Datei in den Suchpfad aufnehmen, damit csp_builder gefunden wird
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
@@ -198,7 +201,7 @@ def record_search(max_steps, time_limit, size=10):
     t0 = time.perf_counter()
     with SearchRecorder(gitter, order, max_steps, time_limit) as rec:
         try:
-            result = solver["forward_checking_search"](gitter, start)
+            result = solver[search_variant](gitter, start)
             status = "gelöst" if result is not None else "keine Lösung"
         except SearchAborted as e:
             result = None
