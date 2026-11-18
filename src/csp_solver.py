@@ -2,6 +2,13 @@ import csp_builder as csp
 from typing import Tuple
 import operator
 
+def dict_copy(old_dict: dict) -> dict:
+    copy = {}
+    for key in old_dict:
+        copy[key] = old_dict[key].copy()
+    return copy
+
+
 def backtracking_search(gitter : csp.LollipopGitter, assignment):
     # assignment is complete if every variable is assigned (our base case)
     if len(assignment) == len(gitter.variables):
@@ -31,31 +38,33 @@ def constraint_propagation(gitter: csp.LollipopGitter, assignment: dict, variabl
                     if not (gitter.possible(var,domain,assignment)):
                         gitter.domains[var].remove(domain) 
 
-def forward_check(gitter: csp.LollipopGitter, assignment: dict, variable: Tuple[int,int], unassigned: list):
+def forward_check(gitter: csp.LollipopGitter, assignment: dict, variable: Tuple[int,int], unassigned: list, domains: dict):
     for constraint in gitter.constraints[variable]:
         var = constraint.cell
         if var in unassigned:
-            for domain in gitter.domains[var]:
-                if not (gitter.possible(var,domain,assignment)):
-                    gitter.domains[var].remove(domain) 
+            for possible_domain in domains[var]:
+                if not (gitter.possible(var,possible_domain,assignment)):
+                    domains[var].remove(possible_domain) 
 
-def forward_checking_search(gitter: csp.LollipopGitter, assignment: dict):
+def forward_checking_search(gitter: csp.LollipopGitter, assignment: dict, domains: dict):
     #TODO
     if len(assignment) == len(gitter.variables):
             return assignment
     unassigned = [v for v in gitter.variables if v not in assignment]
 
     first = unassigned[0]
-    for value in gitter.domains[first]:
+    unassigned.pop(0)
+    for value in domains[first]:
         local_assignment = assignment.copy()
         local_assignment[first] = value
         # if we're still consistent, we recurse (continue)
         if gitter.consistent(first, local_assignment):
-            forward_check(gitter, local_assignment, first, unassigned) 
-            result = forward_checking_search(gitter, local_assignment)
+            local_domains = dict_copy(domains)
+            forward_check(gitter, local_assignment, first, unassigned, local_domains) 
+            result = forward_checking_search(gitter, local_assignment, local_domains)
         # if we didn't find the result, we will end up backtracking
-        if result is not None:
-            return result
+            if result is not None:
+                return result
     return None
 
 
@@ -92,6 +101,7 @@ def make_puzzle(size: int,difficulty: csp.Difficulty) -> Tuple[csp.LollipopGitte
 gitter = csp.LollipopGitter(15)
 assignment = gitter.build_puzzle(csp.Difficulty.HARD)
 print(gitter.toString(assignment))
-solution = forward_checking_search(gitter,assignment)
+# solution = backtracking_search(gitter,assignment, gitter.domains)
+solution = forward_checking_search(gitter,assignment, dict_copy(gitter.domains))
 sorted = dict(sorted(solution.items(), key = operator.itemgetter(0)))
 print(gitter.toString(sorted))

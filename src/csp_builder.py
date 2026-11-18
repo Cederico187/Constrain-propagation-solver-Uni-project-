@@ -277,8 +277,6 @@ class LollipopGitter():
 
         return string
 
-        
-
     def add_constraint(self, constraint: Constraint) -> None:
         for variable in constraint.variables:
             if variable not in self.variables:
@@ -338,6 +336,7 @@ class LollipopGitter():
         assignment[(14,13)] = Domain.CIRCLE
         return assignment
     
+
 if __name__ == '__main__':
     x = LollipopGitter(15)
     assignment = x.build_puzzle(Difficulty.HARD)
