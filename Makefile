@@ -1,7 +1,7 @@
 shell := /bin/bash
 
 run:
-	cd src && python3 csp_builder.py
+	cd src && python3 csp_solver.py
 
 visual:
 	cd src && python3 visualizer.py

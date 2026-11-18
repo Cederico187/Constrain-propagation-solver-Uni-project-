@@ -81,7 +81,7 @@ def make_puzzle(size: int,difficulty: csp.Difficulty) -> Tuple[csp.LollipopGitte
     start_assignment = gitter.build_puzzle(difficulty)
     return (gitter,start_assignment)
 
-gitter = csp.LollipopGitter(10)
+gitter = csp.LollipopGitter(15)
 assignment = gitter.build_puzzle(csp.Difficulty.HARD)
 print(gitter.toString(assignment))
 solution = forward_checking_search(gitter,assignment)

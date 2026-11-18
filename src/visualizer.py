@@ -2,37 +2,60 @@
 Visualizer für den Lollipop-CSP-Solver.
 
 Zeigt in einem eigenen Fenster (Tkinter-Canvas) zuerst die Startkonfiguration
-des Gitters und danach den kompletten "Denkpfad" der Backtracking-Suche:
-jede versuchte Belegung, jeden Konflikt und jeden Backtracking-Schritt.
+des Gitters und danach den kompletten "Denkpfad" einer Suche:
+jede Belegung, jeden verworfenen Wert, jeden Backtracking-Schritt und
+(bei Forward Checking / AC-3) die verbleibenden Domänen jeder Zelle.
 
 Wichtig: csp_builder.py und csp_solver.py werden NICHT verändert.
-  - Aus csp_solver.py werden nur die Funktionsdefinitionen geladen
+  - Aus csp_solver.py werden nur Imports, Funktionen und Klassen geladen
     (der Code auf Modulebene, der sofort ein Puzzle löst, wird übersprungen).
-  - Die Suche wird aufgezeichnet, indem gitter.consistent() für dieses eine
-    Gitter-Objekt durch einen Wrapper ersetzt wird, der jeden Aufruf
-    protokolliert und dann die Original-Methode aufruft.
+  - Alle Funktionen aus csp_solver.py werden in einen protokollierenden
+    Wrapper gepackt. Ein rekursiver Aufruf einer Suchfunktion = ein Knoten
+    im Suchbaum, ein fehlgeschlagener Rückgabewert (None/False) = Backtracking.
+  - gitter.consistent() wird nur für dieses eine Gitter-Objekt ersetzt, damit
+    auch verworfene Werte sichtbar werden.
+  Dadurch funktioniert der Visualizer mit jeder Suchfunktion, egal ob sie
+  Kopien der Belegung macht oder sie in-place ändert, welche
+  Belegungsreihenfolge (Heuristik) sie nutzt und ob sie Domänen beschneidet.
+
+Welche Suche visualisiert wird:
+  - Standard ist die Variable `search_variant` unten.
+  - Überschreibbar per Kommandozeile:  --search forward_tracking_search
+  - Im Fenster per Auswahlliste + "Suche starten".
 
 Start (im Ordner, in dem auch csp_builder.py und csp_solver.py liegen):
     python visualizer.py
-    python visualizer.py --max-steps 500000 --time-limit 60
-    python visualizer.py --no-gui          # nur Konsolenausgabe
+    python visualizer.py --search backtracking_search --size 15 --difficulty hard
+    python visualizer.py --list                 # verfügbare Suchfunktionen
+    python visualizer.py --no-gui               # nur Konsolenausgabe
 
 Bedienung im Fenster:
-    Leertaste  Abspielen / Pause
-    ← / →      einen Schritt zurück / vor
-    Pos1 / Ende   zum Start / zum letzten Schritt
-    B          zum nächsten Backtracking-Schritt springen
+    Leertaste      Abspielen / Pause
+    ← / →          einen Schritt zurück / vor
+    Pos1 / Ende    zum Start / zum letzten Schritt
+    B              zum nächsten Backtracking-Schritt springen
+    D              Domänen ein-/ausblenden
 """
 
 import argparse
 import ast
+import inspect
 import math
 import sys
+import threading
 import time
+import traceback
 from pathlib import Path
 
+# ==========================================================================
+# Welche Suchfunktion aus csp_solver.py standardmäßig visualisiert wird.
+# Muss der Name einer Funktion in csp_solver.py sein.
+# ==========================================================================
+search_variant = "backtracking_search"
 
-search_variant = "forward_checking_search"
+# Standard-Puzzle (wird an make_puzzle(size, difficulty) aus csp_solver.py übergeben)
+DEFAULT_SIZE = 15
+DEFAULT_DIFFICULTY = "HARD"
 
 # Ordner dieser Datei in den Suchpfad aufnehmen, damit csp_builder gefunden wird
 HERE = Path(__file__).resolve().parent
@@ -41,16 +64,25 @@ if str(HERE) not in sys.path:
 
 import csp_builder as csp  # noqa: E402
 
+# Tiefe Rekursion bei großen Gittern (jede Ebene = mehrere Python-Frames)
+sys.setrecursionlimit(100_000)
+try:
+    threading.stack_size(256 * 1024 * 1024)
+except (ValueError, RuntimeError):
+    pass
+
 
 # --------------------------------------------------------------------------
-# 1) Solver-Funktionen laden, ohne den Code auf Modulebene auszuführen
+# 1) Solver laden, ohne den Code auf Modulebene auszuführen
 # --------------------------------------------------------------------------
 def load_solver_functions(path: Path = HERE / "csp_solver.py") -> dict:
     """Lädt nur Imports, Funktionen und Klassen aus csp_solver.py.
 
     Ein normales `import csp_solver` würde sofort das Puzzle auf Modulebene
     lösen und ausgeben. Deshalb wird die Datei per ast eingelesen und nur die
-    Definitionen werden ausgeführt.
+    Definitionen werden ausgeführt. Jeder Aufruf liefert einen frischen
+    Namensraum (wichtig, weil die Funktionen darin für die Aufzeichnung
+    ersetzt werden).
     """
     source = path.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(path))
@@ -61,6 +93,20 @@ def load_solver_functions(path: Path = HERE / "csp_solver.py") -> dict:
     return namespace
 
 
+def available_searches(namespace: dict) -> list:
+    """Alle Funktionen aus csp_solver.py, deren Name 'search' enthält."""
+    return [name for name, obj in namespace.items()
+            if inspect.isfunction(obj) and obj.__globals__ is namespace and "search" in name]
+
+
+def build_puzzle(namespace: dict, size: int, difficulty):
+    """Baut das Puzzle möglichst genauso wie csp_solver.py (make_puzzle)."""
+    if "make_puzzle" in namespace:
+        return namespace["make_puzzle"](size, difficulty)
+    gitter = csp.LollipopGitter(size)
+    return gitter, gitter.build_puzzle(difficulty)
+
+
 # --------------------------------------------------------------------------
 # 2) Aufzeichnung der Suche
 # --------------------------------------------------------------------------
@@ -68,146 +114,369 @@ class SearchAborted(Exception):
     """Wird geworfen, wenn Schritt- oder Zeitlimit erreicht ist."""
 
 
-class SearchRecorder:
-    """Ersetzt gitter.consistent durch einen protokollierenden Wrapper.
+# Ereignis-Arten
+START, ASSIGN, REJECT, PRUNED, BACKTRACK, SOLUTION = (
+    "start", "assign", "reject", "pruned", "backtrack", "solution")
 
-    Jeder Aufruf von consistent(variable, assignment) entspricht genau einem
-    Belegungsversuch der Backtracking-Suche. Gespeichert wird pro Versuch nur
-    (Index der Variable in der Belegungsreihenfolge, Wert, konsistent?).
-    Daraus lässt sich jeder Zwischenzustand der Suche rekonstruieren, weil die
-    Suche die Variablen in fester Reihenfolge belegt.
+
+def is_assignment(obj) -> bool:
+    """dict {Zelle: Domain} (auch leer)."""
+    if not isinstance(obj, dict):
+        return False
+    if not obj:
+        return True
+    return isinstance(next(iter(obj.values())), csp.Domain)
+
+
+def is_domains(obj) -> bool:
+    """dict {Zelle: Liste/Menge von Domain-Werten}."""
+    if not isinstance(obj, dict) or not obj:
+        return False
+    key, value = next(iter(obj.items()))
+    return isinstance(key, tuple) and isinstance(value, (list, set, frozenset, tuple))
+
+
+def domain_snapshot(domains: dict) -> dict:
+    return {cell: frozenset(values) for cell, values in domains.items()}
+
+
+def dict_diff(old: dict, new: dict) -> tuple:
+    """Änderungen von old nach new als ((key, neuer Wert oder None), ...)."""
+    changed = {key for key, _ in old.items() ^ new.items()}
+    return tuple((key, new.get(key)) for key in changed)
+
+
+class _Frame:
+    """Ein aktiver Aufruf einer (gewrappten) Solver-Funktion."""
+    __slots__ = ("name", "is_node", "a_obj", "d_obj", "a_snap", "d_snap")
+
+    def __init__(self, name, a_obj, d_obj):
+        self.name = name
+        self.is_node = False
+        self.a_obj = a_obj
+        self.d_obj = d_obj
+        self.a_snap = dict(a_obj)     # Belegung beim Betreten dieses Knotens
+        self.d_snap = None            # Domänen beim Betreten (nur für Knoten)
+
+
+class SearchRecorder:
+    """Zeichnet eine beliebige Suchfunktion aus csp_solver.py auf.
+
+    Ereignisse (je ein Tupel):
+        (art, fokus_zellen, overlay_wert, belegungs_diff, domänen_diff, tiefe)
+    Aus den Diffs kann der Trace jeden Zwischenzustand rekonstruieren.
     """
 
-    def __init__(self, gitter, order, max_steps, time_limit):
+    def __init__(self, namespace, search_name, gitter, start, max_steps, time_limit):
+        self.ns = namespace
+        self.search_name = search_name
         self.gitter = gitter
-        self.index_of = {var: k for k, var in enumerate(order)}
         self.max_steps = max_steps
         self.time_limit = time_limit
-        self.events = []          # Liste von (k, Domain, ok)
-        self._original = gitter.consistent
-        self._start = None
 
-    def __enter__(self):
-        self._start = time.perf_counter()
-        original = self._original
+        cells = set(gitter.variables)
+        self.init_a = {c: v for c, v in start.items() if c in cells}
+        self.init_d = domain_snapshot(gitter.domains)
+        self.prev_a = dict(self.init_a)
+        self.prev_d = dict(self.init_d)
+
+        self.events = []
+        self.stack = []               # aktive Aufrufe (_Frame)
+        self.recursive = set()        # Funktionen, die sich selbst rekursiv aufrufen
+        self.node_depth = 0
+        self.started = False
+        self.pending = None           # (Zelle, Wert): hat consistent() bestanden, noch offen
+        self.consistent_calls = 0
+        self.overhead = 0.0
+        self._t0 = None
+
+    # ---------- Ereignisse ----------
+    def _flush_pending(self):
+        """Ein Wert hat consistent() bestanden, führte aber zu keinem Kindknoten
+        (z.B. Forward Checking hat eine Nachbardomäne geleert) → als verworfen zeigen."""
+        if self.pending is not None:
+            var, value = self.pending
+            self.pending = None
+            self._record(PRUNED, (var,), value, None, None)
+
+    def _record(self, kind, focus, overlay, new_a, new_d):
+        a_diff = dict_diff(self.prev_a, new_a) if new_a is not None else ()
+        d_diff = dict_diff(self.prev_d, new_d) if new_d is not None else ()
+        if new_a is not None:
+            self.prev_a = new_a
+        if new_d is not None:
+            self.prev_d = new_d
+        if focus is None:   # Fokus = Zellen, deren Belegung sich geändert hat
+            focus = tuple(cell for cell, _ in a_diff)
+        self.events.append((kind, focus, overlay, a_diff, d_diff, self.node_depth))
+        if len(self.events) >= self.max_steps:
+            raise SearchAborted("Schrittlimit erreicht")
+        if len(self.events) % 128 == 0 and \
+                time.perf_counter() - self._t0 - self.overhead > self.time_limit:
+            raise SearchAborted("Zeitlimit erreicht")
+
+    def _enter(self, frame, check_pending=True):
+        """Ein neuer Knoten im Suchbaum (= eine konsistente Belegung)."""
+        frame.is_node = True
+        self.node_depth += 1
+        frame.d_snap = domain_snapshot(frame.d_obj)
+        if check_pending and self.pending is not None:
+            var, value = self.pending
+            if frame.a_snap.get(var) == value:
+                self.pending = None       # der geprüfte Wert wurde tatsächlich belegt
+            else:
+                self._flush_pending()
+        if not self.started:
+            self.started = True
+            self._record(START, None, None, frame.a_snap, frame.d_snap)
+        elif frame.a_snap.items() - self.prev_a.items():
+            self._record(ASSIGN, None, None, frame.a_snap, frame.d_snap)
+        # sonst: Knoten ohne neue Belegung (z.B. Hilfsfunktion) → kein eigener Schritt
+
+    def _backtrack(self):
+        """Knoten ist gescheitert: zurück zum Zustand des Elternknotens."""
+        parent = next((f for f in reversed(self.stack) if f.is_node), None)
+        self._flush_pending()
+        if parent is None:
+            return            # Wurzel gescheitert → Suche endet ohne Lösung
+        self._record(BACKTRACK, None, None, dict(parent.a_snap), dict(parent.d_snap))
+
+    # ---------- Wrapper ----------
+    def _find_args(self, args, kwargs):
+        a_obj = d_obj = g = None
+        for obj in list(args) + list(kwargs.values()):
+            if a_obj is None and is_assignment(obj):
+                a_obj = obj
+            elif d_obj is None and is_domains(obj):
+                d_obj = obj
+            elif g is None and hasattr(obj, "variables") and hasattr(obj, "domains"):
+                g = obj
+        if d_obj is None:
+            d_obj = (g or self.gitter).domains
+        return a_obj, d_obj
+
+    def _wrap(self, name, func):
+        recorder = self
+
+        def wrapper(*args, **kwargs):
+            t = time.perf_counter()
+            a_obj, d_obj = recorder._find_args(args, kwargs)
+            if a_obj is None:                 # keine Belegung als Argument → kein Suchknoten
+                recorder.overhead += time.perf_counter() - t
+                return func(*args, **kwargs)
+
+            frame = _Frame(name, a_obj, d_obj)
+            # Ruft sich eine Funktion selbst auf, ist sie eine rekursive Suchfunktion.
+            # Frühere (äußere) Aufrufe derselben Funktion werden nachträglich zu Knoten.
+            if any(f.name == name for f in recorder.stack):
+                recorder.recursive.add(name)
+                for f in recorder.stack:
+                    if f.name == name and not f.is_node:
+                        recorder._enter(f, check_pending=False)
+            if name == recorder.search_name or name in recorder.recursive:
+                recorder._enter(frame)
+            recorder.stack.append(frame)
+            recorder.overhead += time.perf_counter() - t
+
+            try:
+                result = func(*args, **kwargs)
+            finally:
+                recorder.stack.pop()
+                if frame.is_node:
+                    recorder.node_depth -= 1
+
+            if frame.is_node and (result is None or result is False):
+                t = time.perf_counter()
+                recorder._backtrack()
+                recorder.overhead += time.perf_counter() - t
+            return result
+
+        wrapper.__wrapped__ = func
+        return wrapper
+
+    def _install(self):
+        # Alle Funktionen aus csp_solver.py wrappen (rekursive Aufrufe gehen über
+        # den globalen Namen und landen damit ebenfalls im Wrapper).
+        for name, obj in list(self.ns.items()):
+            if inspect.isfunction(obj) and obj.__globals__ is self.ns:
+                self.ns[name] = self._wrap(name, obj)
+
+        original = self.gitter.consistent
 
         def recording_consistent(variable, assignment):
             ok = original(variable, assignment)
-            self.events.append((self.index_of[variable], assignment[variable], ok))
-            if len(self.events) >= self.max_steps:
-                raise SearchAborted("Schrittlimit erreicht")
-            # Zeit nur ab und zu prüfen (perf_counter ist nicht ganz gratis)
-            if len(self.events) % 256 == 0 and time.perf_counter() - self._start > self.time_limit:
-                raise SearchAborted("Zeitlimit erreicht")
+            t = time.perf_counter()
+            self.consistent_calls += 1
+            if self.node_depth > 0:
+                value = assignment.get(variable)
+                same_var = self.pending is not None and self.pending[0] == variable
+                if same_var:
+                    # nächster Wert derselben Variable → der vorige hat nicht geklappt
+                    self._flush_pending()
+                if not ok:
+                    # Verworfener Wert: Basiszustand bleibt, Wert wird nur rot eingeblendet
+                    self._record(REJECT, (variable,), value, None, None)
+                elif self.pending is None:
+                    # Wert besteht den Test; ob er wirklich belegt wird, zeigt der nächste
+                    # Knoten. (Weitere ok-Aufrufe für andere Zellen = Prüfungen von Nachbarn.)
+                    self.pending = (variable, value)
+            self.overhead += time.perf_counter() - t
             return ok
 
-        # Nur dieses Objekt wird gepatcht, die Klasse bleibt unverändert
         self.gitter.consistent = recording_consistent
-        return self
 
-    def __exit__(self, *exc):
-        # Original-Methode wiederherstellen
-        self.gitter.__dict__.pop("consistent", None)
-        return False
+    def run(self):
+        """Führt die Suche aus. Rückgabe: (Ergebnis, Status, Dauer in s)."""
+        self._install()
+        func = self.ns[self.search_name]
+        self._t0 = time.perf_counter()
+        result = None
+        try:
+            result = func(self.gitter, dict(self.init_a))
+            if is_assignment(result) and result:
+                status = "gelöst"
+            elif result is None or result is False:
+                status = "keine Lösung"
+            else:
+                status = "beendet"
+        except SearchAborted as e:
+            status = f"abgebrochen ({e})"
+        except Exception as e:   # Fehler im Solver: anzeigen, was bis dahin passiert ist
+            traceback.print_exc()
+            status = f"Fehler: {type(e).__name__}: {e}"
+        finally:
+            self.gitter.__dict__.pop("consistent", None)
+        duration = max(0.0, time.perf_counter() - self._t0 - self.overhead)
+
+        if status == "gelöst":
+            cells = set(self.gitter.variables)
+            self.max_steps = float("inf")
+            self._record(SOLUTION, None, None,
+                         {c: v for c, v in result.items() if c in cells}, None)
+        return result, status, duration
 
 
 # --------------------------------------------------------------------------
 # 3) Trace: rekonstruiert jeden Zwischenzustand der Suche
 # --------------------------------------------------------------------------
 class Trace:
-    CHECKPOINT_EVERY = 500
+    CHECKPOINT_EVERY = 400
 
-    def __init__(self, gitter, start_assignment, order, events, status, duration):
-        self.size = gitter.size
-        self.given = dict(start_assignment)
-        self.order = order                # Belegungsreihenfolge der freien Zellen
-        self.n = len(order)
-        self.events = events
-        self.status = status              # "gelöst" / "keine Lösung" / "abgebrochen: ..."
+    def __init__(self, gitter, recorder, status, duration, search_name):
+        self.rows = max(r for r, _ in gitter.variables) + 1
+        self.cols = max(c for _, c in gitter.variables) + 1
+        self.size = max(self.rows, self.cols)
+        self.given = dict(recorder.init_a)
+        self.init_d = dict(recorder.init_d)
+        self.n_free = len(gitter.variables) - len(self.given)
+        self.events = recorder.events
+        self.status = status
         self.duration = duration
+        self.search_name = search_name
+        self.consistent_calls = recorder.consistent_calls
 
-        # Pro Schritt: kumulierte Belegungen, Backtracks, Backtracks direkt davor
-        self.backtracks_cum = [0] * (len(events) + 1)
-        self.backtrack_before = [0] * len(events)
-        self.ok_cum = [0] * (len(events) + 1)
-        prev_k = -1
-        bt = 0
-        okc = 0
-        for i, (k, _value, ok) in enumerate(events):
-            # Springt die Suche auf eine frühere (oder dieselbe nach einem Fehlschlag
-            # in tieferer Ebene) Variable zurück, wurden (prev_k - k) Ebenen verworfen.
-            jump = prev_k - k if prev_k > k else 0
-            self.backtrack_before[i] = jump
-            bt += jump
-            if ok:
-                okc += 1
-            self.backtracks_cum[i + 1] = bt
-            self.ok_cum[i + 1] = okc
-            prev_k = k
+        # Kumulierte Kennzahlen pro Schritt
+        n = len(self.events)
+        self.assigns_cum = [0] * (n + 1)
+        self.rejects_cum = [0] * (n + 1)
+        self.backtracks_cum = [0] * (n + 1)
+        a = r = b = 0
+        self.domains_change = False
+        for i, ev in enumerate(self.events):
+            kind = ev[0]
+            if kind == ASSIGN:
+                a += 1
+            elif kind in (REJECT, PRUNED):
+                r += 1
+            elif kind == BACKTRACK:
+                b += 1
+            if ev[4]:
+                self.domains_change = True
+            self.assigns_cum[i + 1] = a
+            self.rejects_cum[i + 1] = r
+            self.backtracks_cum[i + 1] = b
 
         # Checkpoints für schnelles Springen auf der Zeitleiste
         self.checkpoints = []
-        values = [None] * self.n
-        top = -1                          # höchster belegter Index
-        for i in range(len(events) + 1):
+        cur_a, cur_d = dict(self.given), dict(self.init_d)
+        for i in range(n + 1):
             if i % self.CHECKPOINT_EVERY == 0:
-                self.checkpoints.append((tuple(values), top))
-            if i < len(events):
-                top = self._apply(values, top, events[i])
+                self.checkpoints.append((dict(cur_a), dict(cur_d)))
+            if i < n:
+                self._apply(cur_a, cur_d, self.events[i])
 
         self._cache_step = 0
-        self._cache_values = [None] * self.n
-        self._cache_top = -1
+        self._cache_a = dict(self.given)
+        self._cache_d = dict(self.init_d)
 
     @staticmethod
-    def _apply(values, top, event):
-        k, value, _ok = event
-        for j in range(k + 1, top + 1):   # alles hinter k ist (wieder) unbelegt
-            values[j] = None
-        values[k] = value
-        return k
+    def _apply(cur_a, cur_d, event):
+        for cell, value in event[3]:
+            if value is None:
+                cur_a.pop(cell, None)
+            else:
+                cur_a[cell] = value
+        for cell, values in event[4]:
+            if values is None:
+                cur_d.pop(cell, None)
+            else:
+                cur_d[cell] = values
 
     def state(self, step):
-        """Belegung der freien Zellen nach `step` Ereignissen (0 = Start)."""
+        """(Belegung, Domänen) nach `step` Ereignissen (0 = Start)."""
         if step < self._cache_step or step - self._cache_step > self.CHECKPOINT_EVERY:
             cp = step // self.CHECKPOINT_EVERY
-            vals, top = self.checkpoints[cp]
-            self._cache_values = list(vals)
-            self._cache_top = top
+            a, d = self.checkpoints[cp]
+            self._cache_a, self._cache_d = dict(a), dict(d)
             self._cache_step = cp * self.CHECKPOINT_EVERY
         while self._cache_step < step:
-            self._cache_top = self._apply(self._cache_values, self._cache_top,
-                                          self.events[self._cache_step])
+            self._apply(self._cache_a, self._cache_d, self.events[self._cache_step])
             self._cache_step += 1
-        return self._cache_values
+        return self._cache_a, self._cache_d
 
     def assignment_at(self, step):
-        """Vollständiges Dict {Zelle: Domain} inkl. Vorgaben."""
-        result = dict(self.given)
-        for k, value in enumerate(self.state(step)):
-            if value is not None:
-                result[self.order[k]] = value
-        return result
+        return dict(self.state(step)[0])
 
 
-def record_search(max_steps, time_limit, size=10):
-    """Baut das Puzzle wie csp_solver.py auf und zeichnet backtracking_search auf."""
-    solver = load_solver_functions()
-    gitter = csp.LollipopGitter(size)
-    start = gitter.build_puzzle(csp.Difficulty.HARD)
-    # Gleiche Reihenfolge wie in backtracking_search: erste unbelegte Variable zuerst
-    order = [v for v in gitter.variables if v not in start]
+def record_search(search_name, size, difficulty, max_steps, time_limit):
+    """Baut das Puzzle, zeichnet die gewählte Suche auf und liefert (gitter, Trace, Ergebnis)."""
+    namespace = load_solver_functions()
+    if search_name not in namespace or not callable(namespace[search_name]):
+        raise SystemExit(f"Suchfunktion '{search_name}' gibt es in csp_solver.py nicht. "
+                         f"Verfügbar: {', '.join(available_searches(namespace))}")
+    gitter, start = build_puzzle(namespace, size, difficulty)
+    recorder = SearchRecorder(namespace, search_name, gitter, start, max_steps, time_limit)
+    result, status, duration = recorder.run()
+    return gitter, Trace(gitter, recorder, status, duration, search_name), result
 
-    t0 = time.perf_counter()
-    with SearchRecorder(gitter, order, max_steps, time_limit) as rec:
+
+def run_in_thread(func):
+    """Führt func in einem Thread mit großem Stack aus (tiefe Rekursion)."""
+    box = {}
+
+    def target():
         try:
-            result = solver[search_variant](gitter, start)
-            status = "gelöst" if result is not None else "keine Lösung"
-        except SearchAborted as e:
-            result = None
-            status = f"abgebrochen ({e})"
-    duration = time.perf_counter() - t0
-    return gitter, Trace(gitter, start, order, rec.events, status, duration), result
+            box["value"] = func()
+        except BaseException as e:   # noqa: BLE001 – wird im Aufrufer weitergereicht
+            box["error"] = e
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    return thread, box
+
+
+def format_grid(rows, cols, assignment) -> str:
+    """Konsolenausgabe des Gitters, auch für mehrstellige Zeilen-/Spaltennummern."""
+    symbols = {csp.Domain.EMPTY: " ", csp.Domain.HORIZONTAL_LINE: "━",
+               csp.Domain.VERTICAL_LINE: "┃", csp.Domain.CIRCLE: "o"}
+    w = len(str(max(rows, cols) - 1))
+    head = " " * (w + 1) + "".join(f"{c:>{w}} " for c in range(cols))
+    sep = " " * (w + 1) + ("─" * w + "┼") * cols
+    lines = [head, sep]
+    for r in range(rows):
+        cells = "".join(f"{symbols.get(assignment.get((r, c)), '·'):>{w}}│" for c in range(cols))
+        lines.append(f"{r:>{w}}│" + cells)
+    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------
@@ -219,15 +488,18 @@ COLORS = {
     "panel2": "#2d313d",
     "text": "#e6e8ee",
     "muted": "#8b91a3",
+    "mark": "#5f667a",
     "grid": "#3a3f4d",
     "unassigned": "#23262f",
     "assigned": "#2f3442",
+    "wipeout": "#4a2329",
     "given_bg": "#3d3a2a",
     "given": "#f2c14e",
     "piece": "#7cc4ff",
     "ok": "#4cd585",
     "bad": "#ff5c6c",
     "bt": "#ffa94d",
+    "solution": "#f2c14e",
 }
 
 NAMES = {
@@ -236,26 +508,67 @@ NAMES = {
     csp.Domain.VERTICAL_LINE: "VERTICAL",
     csp.Domain.CIRCLE: "CIRCLE",
 }
+SHORT = {
+    csp.Domain.EMPTY: "leer",
+    csp.Domain.HORIZONTAL_LINE: "━",
+    csp.Domain.VERTICAL_LINE: "┃",
+    csp.Domain.CIRCLE: "o",
+}
+# Position der Domänen-Markierungen (2×2) in einer unbelegten Zelle
+MARK_POS = {
+    csp.Domain.EMPTY: (0, 0),
+    csp.Domain.HORIZONTAL_LINE: (1, 0),
+    csp.Domain.VERTICAL_LINE: (0, 1),
+    csp.Domain.CIRCLE: (1, 1),
+}
 
 
-def run_gui(trace: Trace):
+def fmt(n) -> str:
+    return f"{n:,}".replace(",", ".")
+
+
+def cells_text(cells, limit=4) -> str:
+    text = ", ".join(f"({r},{c})" for r, c in list(cells)[:limit])
+    return text + (" …" if len(cells) > limit else "")
+
+
+def describe(trace: Trace, i: int):
+    """Kurzbeschreibung von Ereignis i → (Text, Farb-Tag)."""
+    kind, focus, overlay, a_diff, d_diff, _depth = trace.events[i]
+    dom = f"  · {len(d_diff)} Domänen geändert" if d_diff else ""
+    if kind == START:
+        return "Start der Suche" + dom, "muted"
+    if kind == ASSIGN:
+        parts = [f"({r},{c})←{SHORT[v]}" for (r, c), v in a_diff if v is not None][:3]
+        return " ".join(parts) + " ✓" + dom, "ok"
+    if kind == REJECT:
+        r, c = focus[0]
+        return f"({r},{c}) {SHORT.get(overlay, '?')} ✗ Konflikt, verworfen", "bad"
+    if kind == PRUNED:
+        r, c = focus[0]
+        return f"({r},{c}) {SHORT.get(overlay, '?')} ✗ verworfen (Folgeprüfung)", "bad"
+    if kind == BACKTRACK:
+        return f"↶ zurück, gelöscht: {cells_text(focus, 2)}" + dom, "bt"
+    return "★ Lösung gefunden", "solution"
+
+
+def run_gui(trace: Trace, args, searches):
     import tkinter as tk
     from tkinter import ttk
 
     class App:
-        CELL = 56
-        MARGIN = 34
-
         def __init__(self, root):
             self.root = root
-            self.trace = trace
-            self.total = len(trace.events)
             self.step = 0
             self.playing = False
             self._updating_scale = False
+            self.sigs = {}                       # zuletzt gezeichneter Zustand pro Zelle
+            self.cell = 40
+            self.margin = 30
 
-            root.title("Lollipop – Backtracking-Visualisierung")
+            root.title("Lollipop – Such-Visualisierung")
             root.configure(bg=COLORS["bg"])
+            root.minsize(900, 600)
 
             style = ttk.Style(root)
             try:
@@ -263,13 +576,20 @@ def run_gui(trace: Trace):
             except tk.TclError:
                 pass
             style.configure("TScale", background=COLORS["bg"])
+            style.configure("TCombobox", fieldbackground=COLORS["panel2"],
+                            background=COLORS["panel2"], foreground=COLORS["text"])
 
-            board_px = self.MARGIN + trace.size * self.CELL + 12
-
-            # ---- Spielfeld-Canvas ----
-            self.canvas = tk.Canvas(root, width=board_px, height=board_px,
+            # ---- Spielfeld-Canvas (passt sich an Fenster- und Gittergröße an) ----
+            screen_w, screen_h = root.winfo_screenwidth(), root.winfo_screenheight()
+            avail = max(300, min(screen_w - 520, screen_h - 200))
+            start_cell = max(14, min(56, avail // max(trace.size, 1)))
+            board = self._margin_for(start_cell, trace.size) + trace.size * start_cell + 12
+            self.canvas = tk.Canvas(root, width=board, height=board,
                                     bg=COLORS["bg"], highlightthickness=0)
-            self.canvas.grid(row=0, column=0, padx=(16, 8), pady=16, sticky="n")
+            self.canvas.grid(row=0, column=0, padx=(16, 8), pady=16, sticky="nsew")
+            root.columnconfigure(0, weight=1)
+            root.rowconfigure(0, weight=1)
+            self.canvas.bind("<Configure>", lambda e: self.full_redraw())
 
             # ---- Seitenleiste ----
             side = tk.Frame(root, bg=COLORS["panel"], padx=14, pady=12)
@@ -279,25 +599,35 @@ def run_gui(trace: Trace):
                 font = ("Helvetica", size, "bold" if bold else "normal")
                 return tk.Label(parent, text=text, font=font, fg=COLORS[color],
                                 bg=parent["bg"], anchor="w", justify="left", **kw)
+            self._label = label
 
-            label(side, "Backtracking-Suche", 15, bold=True).pack(fill="x")
-            label(side, f"Ergebnis: {trace.status}  ·  {trace.duration:.2f} s  ·  "
-                        f"{self.total:,} Versuche".replace(",", "."),
-                  9, "muted").pack(fill="x", pady=(0, 10))
+            label(side, "Such-Visualisierung", 15, bold=True).pack(fill="x")
+
+            # Auswahl der Suchfunktion
+            pick = tk.Frame(side, bg=COLORS["panel"])
+            pick.pack(fill="x", pady=(6, 2))
+            self.search_var = tk.StringVar(value=trace.search_name)
+            ttk.Combobox(pick, textvariable=self.search_var, values=searches,
+                         state="readonly", width=30).pack(side="left", fill="x", expand=True)
+            self.btn_run = tk.Button(pick, text="Suche starten", command=self.rerun,
+                                     bg=COLORS["panel2"], fg=COLORS["text"], relief="flat",
+                                     activebackground=COLORS["grid"], bd=0, padx=8, pady=3)
+            self.btn_run.pack(side="left", padx=(6, 0))
+
+            self.lbl_info = label(side, "", 9, "muted", wraplength=330)
+            self.lbl_info.pack(fill="x", pady=(2, 10))
 
             self.lbl_step = label(side, "", 12, bold=True)
             self.lbl_step.pack(fill="x")
-            self.lbl_action = label(side, "", 11, wraplength=300)
-            self.lbl_action.pack(fill="x", pady=(4, 0))
-            self.lbl_bt = label(side, "", 10, "bt")
-            self.lbl_bt.pack(fill="x", pady=(0, 8))
+            self.lbl_action = label(side, "", 11, wraplength=330)
+            self.lbl_action.pack(fill="x", pady=(4, 8))
 
             # Kennzahlen
             stats = tk.Frame(side, bg=COLORS["panel2"], padx=10, pady=8)
             stats.pack(fill="x", pady=(0, 8))
             self.stat_labels = {}
             for key, title in [("assign", "Variablenbelegungen"),
-                               ("ok", "davon konsistent"),
+                               ("reject", "verworfene Werte"),
                                ("bt", "Backtracking-Schritte"),
                                ("depth", "Suchtiefe")]:
                 row = tk.Frame(stats, bg=COLORS["panel2"])
@@ -306,8 +636,7 @@ def run_gui(trace: Trace):
                 self.stat_labels[key] = label(row, "", 10, bold=True)
                 self.stat_labels[key].pack(side="right")
 
-            # Balken für die Suchtiefe
-            self.depth_bar = tk.Canvas(side, height=10, width=300, bg=COLORS["panel2"],
+            self.depth_bar = tk.Canvas(side, height=10, width=330, bg=COLORS["panel2"],
                                        highlightthickness=0)
             self.depth_bar.pack(fill="x", pady=(0, 10))
 
@@ -328,32 +657,41 @@ def run_gui(trace: Trace):
 
             # Geschwindigkeit (logarithmisch: 1 … 5000 Schritte/s)
             speed_row = tk.Frame(side, bg=COLORS["panel"])
-            speed_row.pack(fill="x", pady=(4, 8))
+            speed_row.pack(fill="x", pady=(4, 4))
             label(speed_row, "Tempo", 10, "muted").pack(side="left")
             self.speed_var = tk.DoubleVar(value=35)
             ttk.Scale(speed_row, from_=0, to=100, variable=self.speed_var,
                       command=lambda _v: self.update_speed_label()).pack(side="left", fill="x",
                                                                          expand=True, padx=6)
-            self.lbl_speed = label(speed_row, "", 9, "muted", width=10)
+            self.lbl_speed = label(speed_row, "", 9, "muted", width=8)
             self.lbl_speed.pack(side="right")
             self.update_speed_label()
 
-            # Protokoll der letzten Schritte
+            # Optionen
+            self.show_domains = tk.BooleanVar(value=trace.domains_change)
+            tk.Checkbutton(side, text="Domänen (Restwerte) anzeigen", variable=self.show_domains,
+                           command=self.full_redraw, bg=COLORS["panel"], fg=COLORS["text"],
+                           selectcolor=COLORS["panel2"], activebackground=COLORS["panel"],
+                           activeforeground=COLORS["text"], anchor="w",
+                           highlightthickness=0).pack(fill="x", pady=(0, 6))
+
+            # Verlauf
             label(side, "Verlauf", 10, "muted").pack(fill="x")
-            self.log = tk.Text(side, height=14, width=40, bg=COLORS["panel2"],
+            self.log = tk.Text(side, height=13, width=44, bg=COLORS["panel2"],
                                fg=COLORS["text"], relief="flat", font=("Courier", 9),
-                               padx=6, pady=4, state="disabled", cursor="arrow")
+                               padx=6, pady=4, state="disabled", cursor="arrow", wrap="none")
             self.log.pack(fill="both", expand=True)
-            self.log.tag_configure("ok", foreground=COLORS["ok"])
-            self.log.tag_configure("bad", foreground=COLORS["bad"])
-            self.log.tag_configure("bt", foreground=COLORS["bt"])
+            for tag in ("ok", "bad", "bt", "muted", "solution"):
+                self.log.tag_configure(tag, foreground=COLORS[tag])
             self.log.tag_configure("cur", background=COLORS["grid"])
 
             # Legende
             legend = tk.Frame(side, bg=COLORS["panel"])
             legend.pack(fill="x", pady=(8, 0))
-            for color, text in [("given", "Vorgabe"), ("piece", "von Suche belegt"),
-                                ("ok", "aktuell: konsistent"), ("bad", "aktuell: Konflikt")]:
+            for color, text in [("given", "Vorgabe"), ("piece", "von der Suche belegt"),
+                                ("ok", "gerade belegt (konsistent)"), ("bad", "verworfener Wert"),
+                                ("bt", "Backtracking: zurückgenommen"),
+                                ("wipeout", "leere Domäne (Sackgasse)")]:
                 row = tk.Frame(legend, bg=COLORS["panel"])
                 row.pack(fill="x")
                 tk.Label(row, text="■", fg=COLORS[color], bg=COLORS["panel"]).pack(side="left")
@@ -362,11 +700,11 @@ def run_gui(trace: Trace):
             # ---- Zeitleiste ----
             bottom = tk.Frame(root, bg=COLORS["bg"])
             bottom.grid(row=1, column=0, columnspan=2, sticky="ew", padx=16, pady=(0, 14))
-            root.columnconfigure(0, weight=1)
             label(bottom, "Zeitleiste", 9, "muted").pack(side="left")
             self.scale_var = tk.DoubleVar(value=0)
-            ttk.Scale(bottom, from_=0, to=max(self.total, 1), variable=self.scale_var,
-                      command=self.on_scale).pack(side="left", fill="x", expand=True, padx=8)
+            self.scale = ttk.Scale(bottom, from_=0, to=1, variable=self.scale_var,
+                                   command=self.on_scale)
+            self.scale.pack(side="left", fill="x", expand=True, padx=8)
 
             # Tastatur
             root.bind("<space>", lambda e: self.toggle_play())
@@ -375,12 +713,50 @@ def run_gui(trace: Trace):
             root.bind("<Home>", lambda e: self.goto(0))
             root.bind("<End>", lambda e: self.goto(self.total))
             root.bind("b", lambda e: self.next_backtrack())
+            root.bind("d", lambda e: (self.show_domains.set(not self.show_domains.get()),
+                                      self.full_redraw()))
 
-            self.render()
+            self.set_trace(trace)
+
+        # ---------- Trace wechseln / neu aufzeichnen ----------
+        def set_trace(self, new_trace):
+            self.trace = new_trace
+            self.total = len(new_trace.events)
+            self.step = 0
+            self.scale.configure(to=max(self.total, 1))
+            t = new_trace
+            self.lbl_info.config(
+                text=f"{t.search_name}  ·  {t.rows}×{t.cols}  ·  Ergebnis: {t.status}\n"
+                     f"Dauer ca. {t.duration:.2f} s  ·  {fmt(self.total)} Schritte  ·  "
+                     f"{fmt(t.consistent_calls)} consistent()-Aufrufe")
+            self.full_redraw()
+
+        def rerun(self):
+            if self.playing:
+                self.toggle_play()
+            name = self.search_var.get()
+            self.btn_run.config(state="disabled", text="läuft …")
+            self.lbl_action.config(text=f"Suche '{name}' läuft …", fg=COLORS["muted"])
+            thread, box = run_in_thread(lambda: record_search(
+                name, args.size, args.difficulty, args.max_steps, args.time_limit))
+
+            def poll():
+                if thread.is_alive():
+                    self.root.after(100, poll)
+                    return
+                self.btn_run.config(state="normal", text="Suche starten")
+                if "error" in box:
+                    self.lbl_action.config(text=f"Fehler: {box['error']}", fg=COLORS["bad"])
+                    return
+                _gitter, new_trace, _result = box["value"]
+                print(f"[{name}] {new_trace.status}, {fmt(len(new_trace.events))} Schritte, "
+                      f"{fmt(new_trace.assigns_cum[-1])} Belegungen, "
+                      f"{fmt(new_trace.backtracks_cum[-1])} Backtracks")
+                self.set_trace(new_trace)
+            poll()
 
         # ---------- Steuerung ----------
         def speed(self):
-            """Schritte pro Sekunde aus der Reglerstellung."""
             return 10 ** (self.speed_var.get() / 100 * math.log10(5000))
 
         def update_speed_label(self):
@@ -396,13 +772,13 @@ def run_gui(trace: Trace):
 
         def next_backtrack(self):
             for i in range(self.step, self.total):
-                if self.trace.backtrack_before[i]:
+                if self.trace.events[i][0] == BACKTRACK:
                     self.goto(i + 1)
                     return
             self.goto(self.total)
 
         def toggle_play(self):
-            if self.step >= self.total:
+            if not self.playing and self.step >= self.total:
                 self.step = 0
             self.playing = not self.playing
             self.btn_play.config(text="⏸" if self.playing else "▶")
@@ -427,113 +803,168 @@ def run_gui(trace: Trace):
                 return
             self.root.after(16, self.tick)
 
-        # ---------- Zeichnen ----------
-        def cell_box(self, r, c):
-            x0 = self.MARGIN + c * self.CELL
-            y0 = self.MARGIN + r * self.CELL
-            return x0, y0, x0 + self.CELL, y0 + self.CELL
+        # ---------- Geometrie ----------
+        @staticmethod
+        def _margin_for(cell, size):
+            digits = len(str(max(size - 1, 0)))
+            return max(18, int(cell * 0.35) + 6 * digits + 8)
 
-        def draw_piece(self, r, c, value, color):
-            x0, y0, x1, y1 = self.cell_box(r, c)
-            cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-            w = self.CELL * 0.16
+        def update_geometry(self):
+            t = self.trace
+            w = max(self.canvas.winfo_width(), 100)
+            h = max(self.canvas.winfo_height(), 100)
+            cell = 56
+            for _ in range(3):   # Rand hängt von der Zellgröße ab → kurz iterieren
+                margin = self._margin_for(cell, t.size)
+                cell = max(8, min(72, int(min((w - margin - 8) / t.cols,
+                                              (h - margin - 8) / t.rows))))
+            self.cell, self.margin = cell, self._margin_for(cell, t.size)
+
+        def cell_box(self, r, c):
+            x0 = self.margin + c * self.cell
+            y0 = self.margin + r * self.cell
+            return x0, y0, x0 + self.cell, y0 + self.cell
+
+        # ---------- Zeichnen ----------
+        def full_redraw(self):
+            self.update_geometry()
             cv = self.canvas
+            cv.delete("all")
+            self.sigs = {}
+            t = self.trace
+            font = ("Helvetica", max(7, min(11, self.cell // 4)))
+            # Bei sehr vielen Spalten nur jede zweite/fünfte Nummer beschriften
+            every = 1 if self.cell >= 18 else (2 if self.cell >= 11 else 5)
+            for c in range(0, t.cols, every):
+                x0, _, x1, _ = self.cell_box(0, c)
+                cv.create_text((x0 + x1) / 2, self.margin / 2, text=str(c),
+                               fill=COLORS["muted"], font=font)
+            for r in range(0, t.rows, every):
+                _, y0, _, y1 = self.cell_box(r, 0)
+                cv.create_text(self.margin / 2, (y0 + y1) / 2, text=str(r),
+                               fill=COLORS["muted"], font=font)
+            self.render()
+
+        def draw_piece(self, tag, x0, y0, x1, y1, value, color):
+            cv = self.canvas
+            cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+            s = x1 - x0
+            w = max(2, s * 0.16)
             if value == csp.Domain.CIRCLE:
-                rad = self.CELL * 0.30
+                rad = s * 0.30
                 cv.create_oval(cx - rad, cy - rad, cx + rad, cy + rad,
-                               fill=color, outline="", tags="dyn")
+                               fill=color, outline="", tags=tag)
             elif value == csp.Domain.HORIZONTAL_LINE:
                 cv.create_line(x0 + 1, cy, x1 - 1, cy, fill=color, width=w,
-                               capstyle="butt", tags="dyn")
+                               capstyle="butt", tags=tag)
             elif value == csp.Domain.VERTICAL_LINE:
                 cv.create_line(cx, y0 + 1, cx, y1 - 1, fill=color, width=w,
-                               capstyle="butt", tags="dyn")
+                               capstyle="butt", tags=tag)
             elif value == csp.Domain.EMPTY:
-                cv.create_text(cx, cy, text="·", fill=COLORS["muted"],
-                               font=("Helvetica", 14), tags="dyn")
+                rad = max(1, s * 0.05)
+                cv.create_oval(cx - rad, cy - rad, cx + rad, cy + rad,
+                               fill=COLORS["muted"], outline="", tags=tag)
+
+        def draw_marks(self, tag, x0, y0, s, values):
+            """Kleine 2×2-Markierungen für die noch möglichen Werte einer Zelle."""
+            cv = self.canvas
+            q = s / 2
+            for value in values:
+                px, py = MARK_POS[value]
+                cx, cy = x0 + q * px + q / 2, y0 + q * py + q / 2
+                k = q * 0.28
+                if value == csp.Domain.CIRCLE:
+                    cv.create_oval(cx - k, cy - k, cx + k, cy + k, outline=COLORS["mark"],
+                                   width=1, tags=tag)
+                elif value == csp.Domain.HORIZONTAL_LINE:
+                    cv.create_line(cx - k, cy, cx + k, cy, fill=COLORS["mark"], width=2, tags=tag)
+                elif value == csp.Domain.VERTICAL_LINE:
+                    cv.create_line(cx, cy - k, cx, cy + k, fill=COLORS["mark"], width=2, tags=tag)
+                else:
+                    cv.create_rectangle(cx - 1, cy - 1, cx + 1, cy + 1, fill=COLORS["mark"],
+                                        outline="", tags=tag)
 
         def render(self):
             t = self.trace
             cv = self.canvas
-            cv.delete("all")
-            assignment = t.assignment_at(self.step)
-            current = t.events[self.step - 1] if self.step > 0 else None
-            cur_cell = t.order[current[0]] if current else None
+            assignment, domains = t.state(self.step)
+            ev = t.events[self.step - 1] if self.step > 0 else None
+            kind = ev[0] if ev else None
 
-            # Koordinaten
-            for i in range(t.size):
-                x0, y0, x1, y1 = self.cell_box(0, i)
-                cv.create_text((x0 + x1) / 2, self.MARGIN - 14, text=str(i),
-                               fill=COLORS["muted"], font=("Helvetica", 9))
-                x0, y0, x1, y1 = self.cell_box(i, 0)
-                cv.create_text(self.MARGIN - 14, (y0 + y1) / 2, text=str(i),
-                               fill=COLORS["muted"], font=("Helvetica", 9))
+            # Hervorgehobene Zellen des aktuellen Schritts
+            highlight = {}
+            if ev:
+                color = {START: "ok", ASSIGN: "ok", REJECT: "bad", PRUNED: "bad",
+                         BACKTRACK: "bt", SOLUTION: "solution"}[kind]
+                for cell in ev[1]:
+                    highlight[cell] = COLORS[color]
+            show_marks = self.show_domains.get() and self.cell >= 20
 
-            # Zellen
-            for r in range(t.size):
-                for c in range(t.size):
+            # Nur Zellen neu zeichnen, deren Darstellung sich geändert hat
+            for r in range(t.rows):
+                for c in range(t.cols):
                     cell = (r, c)
+                    value = assignment.get(cell)
+                    outline = highlight.get(cell)
+                    marks = None
                     if cell in t.given:
-                        bg = COLORS["given_bg"]
-                    elif cell in assignment:
+                        bg, color = COLORS["given_bg"], COLORS["given"]
+                    elif kind in (REJECT, PRUNED) and cell == ev[1][0]:
+                        bg, color, value = COLORS["assigned"], COLORS["bad"], ev[2]
+                    elif value is not None:
                         bg = COLORS["assigned"]
+                        color = COLORS["ok"] if outline and kind in (ASSIGN, START) else COLORS["piece"]
                     else:
-                        bg = COLORS["unassigned"]
-                    cv.create_rectangle(*self.cell_box(r, c), fill=bg,
-                                        outline=COLORS["grid"], width=1)
-
-            # Belegungen
-            for cell, value in assignment.items():
-                r, c = cell
-                if not (0 <= r < t.size and 0 <= c < t.size):
-                    continue
-                if cell in t.given:
-                    color = COLORS["given"]
-                elif cell == cur_cell:
-                    color = COLORS["ok"] if current[2] else COLORS["bad"]
-                else:
-                    color = COLORS["piece"]
-                self.draw_piece(r, c, value, color)
-
-            # Rahmen um die aktuelle Zelle
-            if cur_cell:
-                x0, y0, x1, y1 = self.cell_box(*cur_cell)
-                cv.create_rectangle(x0 + 2, y0 + 2, x1 - 2, y1 - 2, width=3,
-                                    outline=COLORS["ok"] if current[2] else COLORS["bad"])
+                        color = None
+                        dom = domains.get(cell)
+                        if dom is not None and len(dom) == 0:
+                            bg = COLORS["wipeout"]
+                        else:
+                            bg = COLORS["unassigned"]
+                            if show_marks and dom is not None:
+                                marks = tuple(sorted(dom, key=lambda d: d.value))
+                    sig = (bg, value, color, marks, outline)
+                    if self.sigs.get(cell) == sig:
+                        continue
+                    self.sigs[cell] = sig
+                    tag = f"c{r}_{c}"
+                    cv.delete(tag)
+                    x0, y0, x1, y1 = self.cell_box(r, c)
+                    cv.create_rectangle(x0, y0, x1, y1, fill=bg, outline=COLORS["grid"],
+                                        width=1, tags=tag)
+                    if value is not None:
+                        self.draw_piece(tag, x0, y0, x1, y1, value, color)
+                    elif marks:
+                        self.draw_marks(tag, x0, y0, self.cell, marks)
+                    if outline:
+                        bw = max(2, self.cell // 14)
+                        cv.create_rectangle(x0 + bw / 2 + 1, y0 + bw / 2 + 1,
+                                            x1 - bw / 2 - 1, y1 - bw / 2 - 1,
+                                            width=bw, outline=outline, tags=tag)
 
             # Infotexte
-            self.lbl_step.config(text=f"Schritt {self.step:,} / {self.total:,}".replace(",", "."))
-            if current is None:
+            self.lbl_step.config(text=f"Schritt {fmt(self.step)} / {fmt(self.total)}")
+            if ev is None:
                 self.lbl_action.config(text="Startkonfiguration – Vorgaben in Gelb.\n"
                                             "▶ drücken, um die Suche abzuspielen.",
                                        fg=COLORS["text"])
-                self.lbl_bt.config(text="")
             else:
-                k, value, ok = current
-                r, c = cur_cell
-                text = f"Zelle ({r},{c}) ← {NAMES[value]}   " + ("✓ konsistent" if ok else "✗ Konflikt")
-                self.lbl_action.config(text=text, fg=COLORS["ok"] if ok else COLORS["bad"])
-                jump = t.backtrack_before[self.step - 1]
-                self.lbl_bt.config(text=f"↶ Backtracking: {jump} Ebene(n) zurück" if jump else "")
-                if self.step == self.total and t.status == "gelöst":
-                    self.lbl_action.config(text=text + "\n★ Lösung gefunden!")
+                text, tag = describe(t, self.step - 1)
+                self.lbl_action.config(text=text, fg=COLORS[tag])
 
-            depth = (current[0] + 1) if current else 0
-            tries = self.step
-            self.stat_labels["assign"].config(text=f"{tries:,}".replace(",", "."))
-            self.stat_labels["ok"].config(text=f"{t.ok_cum[self.step]:,}".replace(",", "."))
-            self.stat_labels["bt"].config(text=f"{t.backtracks_cum[self.step]:,}".replace(",", "."))
-            self.stat_labels["depth"].config(text=f"{depth} / {t.n}")
+            depth = ev[5] if ev else 0
+            self.stat_labels["assign"].config(text=fmt(t.assigns_cum[self.step]))
+            self.stat_labels["reject"].config(text=fmt(t.rejects_cum[self.step]))
+            self.stat_labels["bt"].config(text=fmt(t.backtracks_cum[self.step]))
+            self.stat_labels["depth"].config(text=f"{depth} / {t.n_free}")
 
-            self.depth_bar.update_idletasks()
-            bw = self.depth_bar.winfo_width() or 300
+            bw = self.depth_bar.winfo_width() or 330
             self.depth_bar.delete("all")
-            if t.n:
-                self.depth_bar.create_rectangle(0, 0, bw * depth / t.n, 10,
+            if t.n_free:
+                self.depth_bar.create_rectangle(0, 0, bw * min(depth, t.n_free) / t.n_free, 10,
                                                 fill=COLORS["piece"], outline="")
 
             self.render_log()
-
             self._updating_scale = True
             self.scale_var.set(self.step)
             self._updating_scale = False
@@ -543,18 +974,15 @@ def run_gui(trace: Trace):
             log = self.log
             log.config(state="normal")
             log.delete("1.0", "end")
-            lo = max(0, self.step - 12)
+            lo = max(0, self.step - 11)
             hi = min(self.total, self.step + 2)
-            if lo == 0 and self.step == 0:
-                log.insert("end", "      Start\n", "cur")
+            if self.step <= 11:
+                log.insert("end", "     0 Startkonfiguration\n",
+                           ("muted",) + (("cur",) if self.step == 0 else ()))
             for i in range(lo, hi):
-                k, value, ok = t.events[i]
-                r, c = t.order[k]
-                if t.backtrack_before[i]:
-                    log.insert("end", f"      ↶ {t.backtrack_before[i]} Ebene(n) zurück\n", "bt")
-                line = f"{i + 1:>6} ({r},{c}) {NAMES[value]:<10} {'✓' if ok else '✗'}\n"
-                tags = ("ok" if ok else "bad",) + (("cur",) if i + 1 == self.step else ())
-                log.insert("end", line, tags)
+                text, tag = describe(t, i)
+                tags = (tag,) + (("cur",) if i + 1 == self.step else ())
+                log.insert("end", f"{i + 1:>6} {text}\n", tags)
             log.config(state="disabled")
             log.see("end")
 
@@ -567,32 +995,50 @@ def run_gui(trace: Trace):
 # 5) Einstieg
 # --------------------------------------------------------------------------
 def main():
-    parser = argparse.ArgumentParser(description="Visualisiert die Backtracking-Suche des Lollipop-Solvers.")
-    parser.add_argument("--max-steps", type=int, default=300_000,
-                        help="maximale Anzahl aufgezeichneter Belegungsversuche (Standard: 300000)")
+    parser = argparse.ArgumentParser(description="Visualisiert die Suche des Lollipop-Solvers.")
+    parser.add_argument("--search", default=search_variant,
+                        help=f"Name der Suchfunktion in csp_solver.py (Standard: {search_variant})")
+    parser.add_argument("--size", type=int, default=DEFAULT_SIZE,
+                        help=f"Gittergröße für make_puzzle (Standard: {DEFAULT_SIZE})")
+    parser.add_argument("--difficulty", default=DEFAULT_DIFFICULTY,
+                        choices=[d.name for d in csp.Difficulty] + [d.name.lower() for d in csp.Difficulty],
+                        help=f"Schwierigkeit (Standard: {DEFAULT_DIFFICULTY})")
+    parser.add_argument("--max-steps", type=int, default=500_000,
+                        help="maximale Anzahl aufgezeichneter Schritte (Standard: 500000)")
     parser.add_argument("--time-limit", type=float, default=60.0,
                         help="Zeitlimit der Suche in Sekunden (Standard: 60)")
+    parser.add_argument("--list", action="store_true", help="verfügbare Suchfunktionen anzeigen")
     parser.add_argument("--no-gui", action="store_true", help="nur Konsolenausgabe, kein Fenster")
     args = parser.parse_args()
+    args.difficulty = csp.Difficulty[args.difficulty.upper()]
 
-    print("Zeichne Backtracking-Suche auf …")
-    gitter, trace, result = record_search(args.max_steps, args.time_limit)
+    searches = available_searches(load_solver_functions())
+    if args.list:
+        print("Suchfunktionen in csp_solver.py:\n  " + "\n  ".join(searches))
+        return
+
+    print(f"Zeichne '{args.search}' auf …")
+    thread, box = run_in_thread(lambda: record_search(
+        args.search, args.size, args.difficulty, args.max_steps, args.time_limit))
+    thread.join()
+    if "error" in box:
+        raise box["error"]
+    gitter, trace, result = box["value"]
 
     print("\nStartkonfiguration:")
-    print(gitter.toString(trace.given))
+    print(format_grid(trace.rows, trace.cols, trace.given))
+    print(f"\nSuche:                 {trace.search_name}")
     print(f"Ergebnis:              {trace.status}")
-    print(f"Dauer der Suche:       {trace.duration:.3f} s")
-    print(f"Variablenbelegungen:   {len(trace.events)}")
+    print(f"Dauer der Suche:       ca. {trace.duration:.3f} s (ohne Aufzeichnungs-Overhead)")
+    print(f"Variablenbelegungen:   {trace.assigns_cum[-1]}")
+    print(f"verworfene Werte:      {trace.rejects_cum[-1]}")
     print(f"Backtracking-Schritte: {trace.backtracks_cum[-1]}")
-    if result is not None:
-        print("\nLösung:")
-        print(gitter.toString(result))
-    else:
-        print("\nLetzter Zustand der Suche:")
-        print(gitter.toString(trace.assignment_at(len(trace.events))))
+    title = "Lösung" if trace.status == "gelöst" else "Letzter Zustand der Suche"
+    print(f"\n{title}:")
+    print(format_grid(trace.rows, trace.cols, trace.assignment_at(len(trace.events))))
 
     if not args.no_gui:
-        run_gui(trace)
+        run_gui(trace, args, searches)
 
 
 if __name__ == "__main__":
