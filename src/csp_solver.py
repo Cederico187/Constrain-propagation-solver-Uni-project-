@@ -49,9 +49,9 @@ def forward_checking_search(gitter: csp.LollipopGitter, assignment: dict):
     for value in gitter.domains[first]:
         local_assignment = assignment.copy()
         local_assignment[first] = value
-        forward_check(gitter, local_assignment, first, unassigned) 
         # if we're still consistent, we recurse (continue)
         if gitter.consistent(first, local_assignment):
+            forward_check(gitter, local_assignment, first, unassigned) 
             result = forward_checking_search(gitter, local_assignment)
         # if we didn't find the result, we will end up backtracking
         if result is not None:
