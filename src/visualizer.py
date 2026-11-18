@@ -51,10 +51,11 @@ from pathlib import Path
 # Welche Suchfunktion aus csp_solver.py standardmäßig visualisiert wird.
 # Muss der Name einer Funktion in csp_solver.py sein.
 # ==========================================================================
-search_variant = "forward_checking_search"
+search_variant = "backtracking_search"
 
-# Standard-Puzzle (wird an make_puzzle(size, difficulty) aus csp_solver.py übergeben)
-DEFAULT_SIZE = 15
+# Standard-Puzzle (wird an make_puzzle(size, difficulty) aus csp_solver.py übergeben).
+# None = Größe automatisch aus csp_solver.py lesen (z.B. "LollipopGitter(15)" unten in der Datei).
+DEFAULT_SIZE = None
 DEFAULT_DIFFICULTY = "HARD"
 
 # Ordner dieser Datei in den Suchpfad aufnehmen, damit csp_builder gefunden wird
@@ -91,6 +92,46 @@ def load_solver_functions(path: Path = HERE / "csp_solver.py") -> dict:
     namespace = {"__name__": "csp_solver_visual", "__file__": str(path)}
     exec(compile(tree, str(path), "exec"), namespace)
     return namespace
+
+
+def detect_size(path: Path = HERE / "csp_solver.py", fallback: int = 10) -> int:
+    """Liest die Gittergröße aus dem Code auf Modulebene von csp_solver.py,
+    z.B. `gitter = csp.LollipopGitter(15)`. Wird nichts gefunden: fallback."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return fallback
+    size = None
+    for stmt in tree.body:
+        if isinstance(stmt, (ast.FunctionDef, ast.ClassDef)):
+            continue
+        for node in ast.walk(stmt):
+            if (isinstance(node, ast.Call) and node.args
+                    and getattr(node.func, "attr", getattr(node.func, "id", None)) == "LollipopGitter"
+                    and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, int)):
+                size = node.args[0].value
+    return size or fallback
+
+
+def call_search(namespace: dict, func, gitter, assignment):
+    """Ruft die Suchfunktion mit (gitter, assignment) auf und füllt weitere
+    Pflicht-Parameter, deren Name 'domain' enthält, mit einer Kopie von
+    gitter.domains (über dict_copy aus csp_solver.py, falls vorhanden) –
+    genau wie z.B. `forward_checking_search(gitter, assignment, dict_copy(gitter.domains))`."""
+    params = list(inspect.signature(func).parameters.values())
+    extra = []
+    for p in params[2:]:
+        if p.default is not inspect.Parameter.empty or p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
+            break
+        if "domain" in p.name.lower():
+            if "dict_copy" in namespace:
+                extra.append(namespace["dict_copy"](gitter.domains))
+            else:
+                extra.append({cell: list(values) for cell, values in gitter.domains.items()})
+        else:
+            raise TypeError(f"Weiß nicht, was ich für den Parameter '{p.name}' von "
+                            f"{func.__name__}() übergeben soll.")
+    return func(gitter, assignment, *extra)
 
 
 def available_searches(namespace: dict) -> list:
@@ -176,6 +217,7 @@ class SearchRecorder:
 
         cells = set(gitter.variables)
         self.init_a = {c: v for c, v in start.items() if c in cells}
+        self.outside = len(start) - len(self.init_a)   # Vorgaben, die nicht ins Gitter passen
         self.init_d = domain_snapshot(gitter.domains)
         self.prev_a = dict(self.init_a)
         self.prev_d = dict(self.init_d)
@@ -187,6 +229,7 @@ class SearchRecorder:
         self.started = False
         self.pending = None           # (Zelle, Wert): hat consistent() bestanden, noch offen
         self.consistent_calls = 0
+        self.domain_checks = 0
         self.overhead = 0.0
         self._t0 = None
 
@@ -307,7 +350,14 @@ class SearchRecorder:
             ok = original(variable, assignment)
             t = time.perf_counter()
             self.consistent_calls += 1
-            if self.node_depth > 0:
+            # Nur Aufrufe direkt aus einer Suchfunktion sind Belegungsversuche.
+            # Aufrufe über gitter.possible() / forward_check() usw. sind Prüfungen
+            # beim Beschneiden von Domänen; deren Ergebnis sieht man an den Domänen.
+            caller = sys._getframe(1).f_code.co_name
+            direct = caller == self.search_name or caller in self.recursive
+            if not direct:
+                self.domain_checks += 1
+            if direct and self.node_depth > 0:
                 value = assignment.get(variable)
                 same_var = self.pending is not None and self.pending[0] == variable
                 if same_var:
@@ -332,8 +382,8 @@ class SearchRecorder:
         self._t0 = time.perf_counter()
         result = None
         try:
-            result = func(self.gitter, dict(self.init_a))
-            if is_assignment(result) and result:
+            result = call_search(self.ns, func, self.gitter, dict(self.init_a))
+            if is_assignment(result) and result:  # noqa: SIM114
                 status = "gelöst"
             elif result is None or result is False:
                 status = "keine Lösung"
@@ -341,6 +391,8 @@ class SearchRecorder:
                 status = "beendet"
         except SearchAborted as e:
             status = f"abgebrochen ({e})"
+        except RecursionError:
+            status = "Fehler: Rekursion zu tief"
         except Exception as e:   # Fehler im Solver: anzeigen, was bis dahin passiert ist
             traceback.print_exc()
             status = f"Fehler: {type(e).__name__}: {e}"
@@ -348,7 +400,9 @@ class SearchRecorder:
             self.gitter.__dict__.pop("consistent", None)
         duration = max(0.0, time.perf_counter() - self._t0 - self.overhead)
 
-        if status == "gelöst":
+        if self.outside:
+            status += f" – Achtung: {self.outside} Vorgaben liegen außerhalb des Gitters"
+        if status.startswith("gelöst"):
             cells = set(self.gitter.variables)
             self.max_steps = float("inf")
             self._record(SOLUTION, None, None,
@@ -374,6 +428,7 @@ class Trace:
         self.duration = duration
         self.search_name = search_name
         self.consistent_calls = recorder.consistent_calls
+        self.domain_checks = recorder.domain_checks
 
         # Kumulierte Kennzahlen pro Schritt
         n = len(self.events)
@@ -568,7 +623,15 @@ def run_gui(trace: Trace, args, searches):
 
             root.title("Lollipop – Such-Visualisierung")
             root.configure(bg=COLORS["bg"])
-            root.minsize(900, 600)
+
+            # Fenstergröße an den Bildschirm anpassen (ca. 92 % × 88 %, zentriert)
+            screen_w, screen_h = root.winfo_screenwidth(), root.winfo_screenheight()
+            win_w = int(min(screen_w * 0.92, 1700))
+            win_h = int(min(screen_h * 0.88, 1200))
+            root.geometry(f"{win_w}x{win_h}+{(screen_w - win_w) // 2}+{max(0, (screen_h - win_h) // 3)}")
+            root.minsize(min(820, screen_w), min(520, screen_h))
+            compact = screen_h < 850           # kleiner Bildschirm (z.B. Laptop)
+            self._redraw_job = None
 
             style = ttk.Style(root)
             try:
@@ -580,16 +643,16 @@ def run_gui(trace: Trace, args, searches):
                             background=COLORS["panel2"], foreground=COLORS["text"])
 
             # ---- Spielfeld-Canvas (passt sich an Fenster- und Gittergröße an) ----
-            screen_w, screen_h = root.winfo_screenwidth(), root.winfo_screenheight()
-            avail = max(300, min(screen_w - 520, screen_h - 200))
-            start_cell = max(14, min(56, avail // max(trace.size, 1)))
-            board = self._margin_for(start_cell, trace.size) + trace.size * start_cell + 12
-            self.canvas = tk.Canvas(root, width=board, height=board,
+            # Startgröße des Canvas: was neben der Seitenleiste (~390 px) übrig bleibt
+            board_w = max(250, win_w - 390 - 40)
+            board_h = max(250, win_h - 80)
+            self.canvas = tk.Canvas(root, width=board_w, height=board_h,
                                     bg=COLORS["bg"], highlightthickness=0)
             self.canvas.grid(row=0, column=0, padx=(16, 8), pady=16, sticky="nsew")
             root.columnconfigure(0, weight=1)
             root.rowconfigure(0, weight=1)
-            self.canvas.bind("<Configure>", lambda e: self.full_redraw())
+            # Beim Ziehen am Fenster nicht bei jedem Pixel neu zeichnen
+            self.canvas.bind("<Configure>", lambda e: self.schedule_redraw())
 
             # ---- Seitenleiste ----
             side = tk.Frame(root, bg=COLORS["panel"], padx=14, pady=12)
@@ -609,10 +672,21 @@ def run_gui(trace: Trace, args, searches):
             self.search_var = tk.StringVar(value=trace.search_name)
             ttk.Combobox(pick, textvariable=self.search_var, values=searches,
                          state="readonly", width=30).pack(side="left", fill="x", expand=True)
-            self.btn_run = tk.Button(pick, text="Suche starten", command=self.rerun,
+            pick2 = tk.Frame(side, bg=COLORS["panel"])
+            pick2.pack(fill="x", pady=(2, 2))
+            label(pick2, "Größe", 10, "muted").pack(side="left")
+            self.size_var = tk.IntVar(value=trace.size)
+            tk.Spinbox(pick2, from_=2, to=100, textvariable=self.size_var, width=4,
+                       bg=COLORS["panel2"], fg=COLORS["text"], buttonbackground=COLORS["panel2"],
+                       insertbackground=COLORS["text"], relief="flat").pack(side="left", padx=(4, 10))
+            label(pick2, "Schwierigkeit", 10, "muted").pack(side="left")
+            self.diff_var = tk.StringVar(value=args.difficulty.name)
+            ttk.Combobox(pick2, textvariable=self.diff_var, state="readonly", width=8,
+                         values=[d.name for d in csp.Difficulty]).pack(side="left", padx=(4, 0))
+            self.btn_run = tk.Button(pick2, text="Suche starten", command=self.rerun,
                                      bg=COLORS["panel2"], fg=COLORS["text"], relief="flat",
                                      activebackground=COLORS["grid"], bd=0, padx=8, pady=3)
-            self.btn_run.pack(side="left", padx=(6, 0))
+            self.btn_run.pack(side="right")
 
             self.lbl_info = label(side, "", 9, "muted", wraplength=330)
             self.lbl_info.pack(fill="x", pady=(2, 10))
@@ -677,10 +751,11 @@ def run_gui(trace: Trace, args, searches):
 
             # Verlauf
             label(side, "Verlauf", 10, "muted").pack(fill="x")
-            self.log = tk.Text(side, height=13, width=44, bg=COLORS["panel2"],
+            self.log = tk.Text(side, height=6 if compact else 13, width=44, bg=COLORS["panel2"],
                                fg=COLORS["text"], relief="flat", font=("Courier", 9),
                                padx=6, pady=4, state="disabled", cursor="arrow", wrap="none")
             self.log.pack(fill="both", expand=True)
+            self.log_lines = 5 if compact else 11
             for tag in ("ok", "bad", "bt", "muted", "solution"):
                 self.log.tag_configure(tag, foreground=COLORS[tag])
             self.log.tag_configure("cur", background=COLORS["grid"])
@@ -688,12 +763,12 @@ def run_gui(trace: Trace, args, searches):
             # Legende
             legend = tk.Frame(side, bg=COLORS["panel"])
             legend.pack(fill="x", pady=(8, 0))
-            for color, text in [("given", "Vorgabe"), ("piece", "von der Suche belegt"),
-                                ("ok", "gerade belegt (konsistent)"), ("bad", "verworfener Wert"),
-                                ("bt", "Backtracking: zurückgenommen"),
-                                ("wipeout", "leere Domäne (Sackgasse)")]:
+            entries = [("given", "Vorgabe"), ("piece", "von Suche belegt"),
+                       ("ok", "gerade belegt"), ("bad", "verworfener Wert"),
+                       ("bt", "zurückgenommen"), ("wipeout", "leere Domäne")]
+            for i, (color, text) in enumerate(entries):
                 row = tk.Frame(legend, bg=COLORS["panel"])
-                row.pack(fill="x")
+                row.grid(row=i // 2, column=i % 2, sticky="w", padx=(0, 12))
                 tk.Label(row, text="■", fg=COLORS[color], bg=COLORS["panel"]).pack(side="left")
                 label(row, text, 9, "muted").pack(side="left")
 
@@ -728,17 +803,24 @@ def run_gui(trace: Trace, args, searches):
             self.lbl_info.config(
                 text=f"{t.search_name}  ·  {t.rows}×{t.cols}  ·  Ergebnis: {t.status}\n"
                      f"Dauer ca. {t.duration:.2f} s  ·  {fmt(self.total)} Schritte  ·  "
-                     f"{fmt(t.consistent_calls)} consistent()-Aufrufe")
+                     f"{fmt(t.consistent_calls)} consistent()-Aufrufe"
+                     + (f", davon {fmt(t.domain_checks)} Domänen-Prüfungen" if t.domain_checks else ""))
             self.full_redraw()
 
         def rerun(self):
             if self.playing:
                 self.toggle_play()
             name = self.search_var.get()
+            try:
+                size = int(self.size_var.get())
+            except (ValueError, tk.TclError):
+                size = self.trace.size
+            difficulty = csp.Difficulty[self.diff_var.get()]
             self.btn_run.config(state="disabled", text="läuft …")
-            self.lbl_action.config(text=f"Suche '{name}' läuft …", fg=COLORS["muted"])
+            self.lbl_action.config(text=f"Suche '{name}' auf {size}×{size} läuft …",
+                                   fg=COLORS["muted"])
             thread, box = run_in_thread(lambda: record_search(
-                name, args.size, args.difficulty, args.max_steps, args.time_limit))
+                name, size, difficulty, args.max_steps, args.time_limit))
 
             def poll():
                 if thread.is_alive():
@@ -746,7 +828,9 @@ def run_gui(trace: Trace, args, searches):
                     return
                 self.btn_run.config(state="normal", text="Suche starten")
                 if "error" in box:
-                    self.lbl_action.config(text=f"Fehler: {box['error']}", fg=COLORS["bad"])
+                    err = box["error"]
+                    msg = err.code if isinstance(err, SystemExit) else f"{type(err).__name__}: {err}"
+                    self.lbl_action.config(text=f"Fehler: {msg}", fg=COLORS["bad"])
                     return
                 _gitter, new_trace, _result = box["value"]
                 print(f"[{name}] {new_trace.status}, {fmt(len(new_trace.events))} Schritte, "
@@ -816,7 +900,7 @@ def run_gui(trace: Trace, args, searches):
             cell = 56
             for _ in range(3):   # Rand hängt von der Zellgröße ab → kurz iterieren
                 margin = self._margin_for(cell, t.size)
-                cell = max(8, min(72, int(min((w - margin - 8) / t.cols,
+                cell = max(6, min(80, int(min((w - margin - 8) / t.cols,
                                               (h - margin - 8) / t.rows))))
             self.cell, self.margin = cell, self._margin_for(cell, t.size)
 
@@ -826,7 +910,13 @@ def run_gui(trace: Trace, args, searches):
             return x0, y0, x0 + self.cell, y0 + self.cell
 
         # ---------- Zeichnen ----------
+        def schedule_redraw(self):
+            if self._redraw_job is not None:
+                self.root.after_cancel(self._redraw_job)
+            self._redraw_job = self.root.after(60, self.full_redraw)
+
         def full_redraw(self):
+            self._redraw_job = None
             self.update_geometry()
             cv = self.canvas
             cv.delete("all")
@@ -974,9 +1064,10 @@ def run_gui(trace: Trace, args, searches):
             log = self.log
             log.config(state="normal")
             log.delete("1.0", "end")
-            lo = max(0, self.step - 11)
+            n = self.log_lines
+            lo = max(0, self.step - n)
             hi = min(self.total, self.step + 2)
-            if self.step <= 11:
+            if self.step <= n:
                 log.insert("end", "     0 Startkonfiguration\n",
                            ("muted",) + (("cur",) if self.step == 0 else ()))
             for i in range(lo, hi):
@@ -998,8 +1089,10 @@ def main():
     parser = argparse.ArgumentParser(description="Visualisiert die Suche des Lollipop-Solvers.")
     parser.add_argument("--search", default=search_variant,
                         help=f"Name der Suchfunktion in csp_solver.py (Standard: {search_variant})")
-    parser.add_argument("--size", type=int, default=DEFAULT_SIZE,
-                        help=f"Gittergröße für make_puzzle (Standard: {DEFAULT_SIZE})")
+    default_size = DEFAULT_SIZE or detect_size()
+    parser.add_argument("--size", type=int, default=default_size,
+                        help=f"Gittergröße für make_puzzle (Standard: {default_size}, "
+                             f"aus csp_solver.py gelesen)")
     parser.add_argument("--difficulty", default=DEFAULT_DIFFICULTY,
                         choices=[d.name for d in csp.Difficulty] + [d.name.lower() for d in csp.Difficulty],
                         help=f"Schwierigkeit (Standard: {DEFAULT_DIFFICULTY})")
@@ -1033,7 +1126,7 @@ def main():
     print(f"Variablenbelegungen:   {trace.assigns_cum[-1]}")
     print(f"verworfene Werte:      {trace.rejects_cum[-1]}")
     print(f"Backtracking-Schritte: {trace.backtracks_cum[-1]}")
-    title = "Lösung" if trace.status == "gelöst" else "Letzter Zustand der Suche"
+    title = "Lösung" if trace.status.startswith("gelöst") else "Letzter Zustand der Suche"
     print(f"\n{title}:")
     print(format_grid(trace.rows, trace.cols, trace.assignment_at(len(trace.events))))
 

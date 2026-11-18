@@ -54,6 +54,7 @@ def forward_checking_search(gitter: csp.LollipopGitter, assignment: dict, domain
 
     first = unassigned[0]
     unassigned.pop(0)
+
     for value in domains[first]:
         local_assignment = assignment.copy()
         local_assignment[first] = value

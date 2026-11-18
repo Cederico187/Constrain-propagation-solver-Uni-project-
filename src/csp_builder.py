@@ -230,6 +230,7 @@ class RowColumnConstraint(Constraint):
 
 
 class LollipopGitter():
+    
     def __init__(self, size : int):
         self.size = size
         self.variables = list() # Liste der Zellen im Gitter
