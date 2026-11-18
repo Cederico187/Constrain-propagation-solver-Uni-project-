@@ -1,4 +1,7 @@
 shell := /bin/bash
 
-build:
+run:
 	cd src && python3 csp_builder.py
+
+visual:
+	cd src && python3 visualizer.py

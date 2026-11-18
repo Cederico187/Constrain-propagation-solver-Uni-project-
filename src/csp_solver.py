@@ -35,7 +35,7 @@ def complete_search(gitter: csp.LollipopGitter, assignment: dict ):
     #TODO
     return None
 
-def solve_puzzle(search_function: function, gitter: csp.LollipopGitter, assignment: dict) -> None:
+def solve_puzzle(search_function, gitter: csp.LollipopGitter, assignment: dict) -> None:
     #TODO
     solution = search_function(gitter,assignment)
     #TODO
