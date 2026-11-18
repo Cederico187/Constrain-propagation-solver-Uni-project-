@@ -36,6 +36,7 @@ class AdjacentCellConstraint(Constraint):
         self.cell_left = (x, y-1)
         self.cell_right = (x, y+1)
         variables = []
+        variables.append(self.cell)
         if all(0 <= ele < size for ele in self.cell_above):
             variables.append(self.cell_above)
         if all(0 <= ele < size for ele in self.cell_below):
@@ -128,6 +129,7 @@ class AdjacentCellConstraint(Constraint):
                         return False
                     if assignment[self.cell_below] == Domain.VERTICAL_LINE:
                         below = 1
+                
                 if all(cell in assignment for cell in self.variables):
                     if left + right + above + below != 1:
                         return False
@@ -260,7 +262,7 @@ class LollipopGitter():
                         x = (i - 1) // 2
                         y = (j - 1) // 2
                         
-                        string += symbols.get(assignment.get((y, x)), " ")
+                        string += symbols.get(assignment.get((x, y)), " ")
 
                     else:
                         string += "│"
