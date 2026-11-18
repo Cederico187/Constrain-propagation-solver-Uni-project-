@@ -59,6 +59,11 @@ def complete_search(gitter: csp.LollipopGitter, assignment: dict ):
     #TODO
     return None
 
+def heuristic():
+    #TODO: mrv
+    #TODO: Gradheuristic
+    return None
+
 def solve_puzzle(search_function, gitter: csp.LollipopGitter, assignment: dict) -> None:
     #TODO
     solution = search_function(gitter,assignment)
@@ -82,5 +87,3 @@ print(gitter.toString(assignment))
 solution = forward_checking_search(gitter,assignment)
 sorted = dict(sorted(solution.items(), key = operator.itemgetter(0)))
 print(gitter.toString(sorted))
-#for key, value in sorted.items():
-#   print(f"Cell: {key} -> Belegung: {value}" )
