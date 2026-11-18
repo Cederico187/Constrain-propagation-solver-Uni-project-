@@ -292,6 +292,14 @@ class LollipopGitter():
                 return False
         return True
 
+    def possible(self, variable: Tuple[int,int], value: Domain, assignment: dict) -> bool:
+        test_assignment = assignment.copy()
+        test_assignment[variable] = value
+        if self.consistent(variable, test_assignment):
+            return True
+        else:
+            return False
+
     def build_puzzle(self, difficulty: Difficulty) -> Dict:
         for x in self.variables:
             self.add_constraint(RowColumnConstraint(x, self.size))

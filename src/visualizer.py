@@ -198,7 +198,7 @@ def record_search(max_steps, time_limit, size=10):
     t0 = time.perf_counter()
     with SearchRecorder(gitter, order, max_steps, time_limit) as rec:
         try:
-            result = solver["backtracking_search"](gitter, start)
+            result = solver["forward_checking_search"](gitter, start)
             status = "gelöst" if result is not None else "keine Lösung"
         except SearchAborted as e:
             result = None
