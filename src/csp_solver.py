@@ -38,7 +38,9 @@ def constraint_propagation(gitter: csp.LollipopGitter, assignment: dict, variabl
         for var in constraint.variables:
             if var in unassigned:
                 for possible_domain in domains[var]:
-                    if not (gitter.possible(variable,possible_domain,assignment)):
+                    local_assignment = {variable: assignment[variable]}
+                    local_assignment[var] = possible_domain
+                    if not (gitter.consistent(var,local_assignment)):
                         domains[var].remove(possible_domain)
 
 def forward_check(gitter: csp.LollipopGitter, assignment: dict, variable: Tuple[int,int], unassigned: list, domains: dict):

@@ -69,7 +69,11 @@ from pathlib import Path
 # Welche Suchfunktion aus csp_solver.py standardmäßig visualisiert wird.
 # Muss der Name einer Funktion in csp_solver.py sein.
 # ==========================================================================
-search_variant = "forward_checking_search_with_heuristic"
+bs = "backtracking_search"
+fcs = "forward_checking_search"
+fcsH = "forward_checking_search_with_heuristic"
+cs = "complete_search"
+search_variant = cs
 
 # Zeitlimit der Suche in Sekunden. None = kein Zeitlimit.
 TIME_LIMIT = None
