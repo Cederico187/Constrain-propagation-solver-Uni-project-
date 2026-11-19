@@ -43,8 +43,10 @@ def forward_check(gitter: csp.LollipopGitter, assignment: dict, variable: Tuple[
         var = constraint.cell
         if var in unassigned:
             for possible_domain in domains[var]:
-                if not (gitter.possible(var,possible_domain,assignment)):
-                    domains[var].remove(possible_domain) 
+                local_assignment = assignment.copy()
+                local_assignment[var] = possible_domain
+                if not (constraint.satisfied(local_assignment)):
+                    domains[var].remove(possible_domain)
 
 def forward_checking_search(gitter: csp.LollipopGitter, assignment: dict, domains: dict):
     #TODO
