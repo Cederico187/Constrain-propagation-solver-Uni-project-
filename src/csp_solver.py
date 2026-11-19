@@ -31,15 +31,14 @@ def backtracking_search(gitter : csp.LollipopGitter, assignment):
                 return result
     return None
 
-def constraint_propagation(gitter: csp.LollipopGitter, assignment: dict, unassigned: list, domains: dict):
-    for v in assignment:
-        for constraint in gitter.constraints[v]:
-            var = constraint.cell 
-            if var in unassigned:               
+
+
+def constraint_propagation(gitter: csp.LollipopGitter, assignment: dict, variable: Tuple[int,int], unassigned: list, domains: dict):
+    for constraint in gitter.constraints[variable]:
+        for var in constraint.variables:
+            if var in unassigned:
                 for possible_domain in domains[var]:
-                    local_assignment = {v: assignment[v]}
-                    local_assignment[var] = possible_domain
-                    if not (constraint.satisfied(local_assignment)):
+                    if not (gitter.possible(variable,possible_domain,assignment)):
                         domains[var].remove(possible_domain)
 
 def forward_check(gitter: csp.LollipopGitter, assignment: dict, variable: Tuple[int,int], unassigned: list, domains: dict):
@@ -105,7 +104,6 @@ def complete_search(gitter: csp.LollipopGitter, assignment: dict ,domains: dict)
     unassigned = [v for v in gitter.variables if v not in assignment]
     # MRV Heuristik
     sorted_variables = sorted(unassigned, key= lambda x: len(domains[x]))
-    constraint_propagation(gitter, assignment, unassigned, domains)
     first = sorted_variables[0]
     unassigned.remove(first)
     
@@ -115,7 +113,7 @@ def complete_search(gitter: csp.LollipopGitter, assignment: dict ,domains: dict)
         # if we're still consistent, we recurse (continue)
         if gitter.consistent(first, local_assignment):
             local_domains = dict_copy(domains)
-            forward_check(gitter, local_assignment, first,unassigned, local_domains)
+            constraint_propagation(gitter, local_assignment, first,unassigned, local_domains)
             result = complete_search(gitter, local_assignment, local_domains)
         # if we didn't find the result, we will end up backtracking
             if result is not None:
