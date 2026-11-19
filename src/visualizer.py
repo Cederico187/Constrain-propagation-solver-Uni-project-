@@ -56,6 +56,7 @@ Bedienung im Fenster:
 
 import argparse
 import ast
+from array import array
 import inspect
 import math
 import sys
@@ -68,15 +69,18 @@ from pathlib import Path
 # Welche Suchfunktion aus csp_solver.py standardmäßig visualisiert wird.
 # Muss der Name einer Funktion in csp_solver.py sein.
 # ==========================================================================
-search_variant = "complete_search"
+search_variant = "forward_checking_search_with_heuristic"
 
 # Zeitlimit der Suche in Sekunden. None = kein Zeitlimit.
 TIME_LIMIT = None
-#TIME_LIMIT = 60
 
-# Maximale Anzahl aufgezeichneter Schritte (schützt den Arbeitsspeicher bei sehr
-# langen Suchen). None = unbegrenzt.
-MAX_STEPS = 2_000_000
+# Kein festes Schrittlimit. Jeder aufgezeichnete Schritt braucht ca. 200 Byte
+# Arbeitsspeicher (1 Mio. Schritte ≈ 200 MB). Damit eine sehr lange Suche den
+# Rechner nicht lahmlegt, wird erst abgebrochen, wenn die Aufzeichnung diesen
+# Anteil des Arbeitsspeichers belegen würde. None = gar keine Grenze.
+MAX_MEMORY_SHARE = 0.5
+MAX_STEPS = None          # optional festes Schrittlimit, None = keins
+BYTES_PER_STEP = 200      # gemessener Richtwert
 
 # Gittergröße für make_puzzle(size, difficulty) aus csp_solver.py.
 # None = automatisch aus den Vorgaben in build_puzzle() erkennen.
@@ -236,13 +240,31 @@ _MISSING = object()
 
 
 def dict_diff(old: dict, new: dict) -> tuple:
-    """Änderungen von old nach new als ((key, neuer Wert oder None), ...).
+    """Änderungen von old nach new, platzsparend flach gespeichert:
+    (key1, neuer Wert oder None, key2, neuer Wert oder None, ...).
     Vergleicht nur Werte (kein Hashing der Enum-Werte → schnell auch bei 25×25)."""
-    out = [(key, value) for key, value in new.items()
-           if (prev := old.get(key, _MISSING)) is not value and prev != value]
+    out = []
+    for key, value in new.items():
+        prev = old.get(key, _MISSING)
+        if prev is not value and prev != value:
+            out.append(key)
+            out.append(value)
     if not old.keys() <= new.keys():          # Einträge, die weggefallen sind
-        out.extend((key, None) for key in old.keys() - new.keys())
-    return tuple(out)
+        for key in old.keys() - new.keys():
+            out.append(key)
+            out.append(None)
+    return tuple(out) if out else ()
+
+
+def diff_pairs(flat: tuple):
+    """(key, Wert)-Paare aus einem flach gespeicherten Diff."""
+    return zip(flat[0::2], flat[1::2])
+
+
+def event_focus(event) -> tuple:
+    """Hervorgehobene Zellen eines Schritts. Wird nur gespeichert, wenn es nicht
+    einfach die Zellen mit geänderter Belegung sind (spart Speicher)."""
+    return event[1] if event[1] is not None else event[3][0::2]
 
 
 class _Frame:
@@ -271,6 +293,7 @@ class SearchRecorder:
         self.search_name = search_name
         self.gitter = gitter
         self.max_steps = max_steps if max_steps else float("inf")
+        self.memory_limit = memory_step_limit()   # Schutz des Arbeitsspeichers
         self.time_limit = time_limit if time_limit else None   # None/0 = kein Zeitlimit
 
         cells = set(gitter.variables)
@@ -326,8 +349,7 @@ class SearchRecorder:
             self.prev_a = new_a
         if new_d is not None:
             self.prev_d = new_d
-        if focus is None:   # Fokus = Zellen, deren Belegung sich geändert hat
-            focus = tuple(cell for cell, _ in a_diff)
+        # focus None = "die Zellen mit geänderter Belegung" (siehe event_focus)
         self.events.append((kind, focus, overlay, a_diff, d_diff, self.node_depth))
         if kind == ASSIGN:
             self.n_assign += 1
@@ -336,7 +358,10 @@ class SearchRecorder:
         elif kind == BACKTRACK:
             self.n_backtrack += 1
         if len(self.events) >= self.max_steps:
-            raise SearchAborted("Schrittlimit erreicht")
+            raise SearchAborted(f"Schrittlimit {fmt(self.max_steps)} erreicht")
+        if self.memory_limit is not None and len(self.events) >= self.memory_limit:
+            raise SearchAborted(f"Speicherschutz: Aufzeichnung {approx_mb(len(self.events))}, "
+                                f"das sind {MAX_MEMORY_SHARE:.0%} des Arbeitsspeichers")
         if len(self.events) % 64 == 0:
             self._check_limits()
 
@@ -362,7 +387,7 @@ class SearchRecorder:
         if not self.started:
             self.started = True
             self._record(START, None, None, frame.a_snap, frame.d_snap, a_diff)
-        elif any(value is not None for _, value in a_diff):
+        elif any(value is not None for value in a_diff[1::2]):
             self._record(ASSIGN, None, None, frame.a_snap, frame.d_snap, a_diff)
         # sonst: Knoten ohne neue Belegung (z.B. Hilfsfunktion) → kein eigener Schritt
 
@@ -510,7 +535,10 @@ class SearchRecorder:
 # 3) Trace: rekonstruiert jeden Zwischenzustand der Suche
 # --------------------------------------------------------------------------
 class Trace:
-    CHECKPOINT_EVERY = 400
+    # Zwischenstände (komplette Belegung + Domänen) für schnelles Springen.
+    # Abstand wächst mit der Länge der Suche, damit es höchstens ~300 gibt.
+    MIN_CHECKPOINT_EVERY = 400
+    MAX_CHECKPOINTS = 300
 
     def __init__(self, gitter, recorder, status, duration, search_name):
         self.rows = max(r for r, _ in gitter.variables) + 1
@@ -527,11 +555,12 @@ class Trace:
         self.domain_checks = recorder.domain_checks
         self.wall_time = recorder.wall_time
 
-        # Kumulierte Kennzahlen pro Schritt
+        # Kumulierte Kennzahlen pro Schritt (array statt Liste: 8 statt ~36 Byte pro Zahl)
         n = len(self.events)
-        self.assigns_cum = [0] * (n + 1)
-        self.rejects_cum = [0] * (n + 1)
-        self.backtracks_cum = [0] * (n + 1)
+        self.assigns_cum = array("q", bytes(8 * (n + 1)))
+        self.rejects_cum = array("q", bytes(8 * (n + 1)))
+        self.backtracks_cum = array("q", bytes(8 * (n + 1)))
+        self.CHECKPOINT_EVERY = max(self.MIN_CHECKPOINT_EVERY, -(-n // self.MAX_CHECKPOINTS))
         a = r = b = 0
         self.domains_change = False
         for i, ev in enumerate(self.events):
@@ -563,12 +592,12 @@ class Trace:
 
     @staticmethod
     def _apply(cur_a, cur_d, event):
-        for cell, value in event[3]:
+        for cell, value in diff_pairs(event[3]):
             if value is None:
                 cur_a.pop(cell, None)
             else:
                 cur_a[cell] = value
-        for cell, values in event[4]:
+        for cell, values in diff_pairs(event[4]):
             if values is None:
                 cur_d.pop(cell, None)
             else:
@@ -644,6 +673,44 @@ def print_summary(trace):
     title = "Lösung" if trace.status.startswith("gelöst") else "Letzter Zustand der Suche"
     print(f"\n{title}:")
     print(format_grid(trace.rows, trace.cols, trace.assignment_at(len(trace.events))))
+
+
+def total_ram_bytes():
+    """Gesamter Arbeitsspeicher des Rechners (Linux, macOS, Windows) oder None."""
+    try:
+        import os
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    except (ValueError, OSError, AttributeError):
+        pass
+    try:   # Windows
+        import ctypes
+
+        class MemStatus(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+        status = MemStatus()
+        status.dwLength = ctypes.sizeof(MemStatus)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status))
+        return status.ullTotalPhys or None
+    except Exception:          # noqa: BLE001
+        return None
+
+
+def memory_step_limit():
+    """Wie viele Schritte höchstens aufgezeichnet werden (aus MAX_MEMORY_SHARE)."""
+    if MAX_MEMORY_SHARE is None:
+        return None
+    ram = total_ram_bytes()
+    if not ram:
+        return 20_000_000      # unbekannt: ca. 4 GB
+    return int(ram * MAX_MEMORY_SHARE / BYTES_PER_STEP)
+
+
+def approx_mb(steps: int) -> str:
+    return f"≈ {steps * BYTES_PER_STEP / 1e6:,.0f} MB".replace(",", ".")
 
 
 def limit_text(time_limit) -> str:
@@ -734,12 +801,14 @@ def cells_text(cells, limit=4) -> str:
 
 def describe(trace: Trace, i: int):
     """Kurzbeschreibung von Ereignis i → (Text, Farb-Tag)."""
-    kind, focus, overlay, a_diff, d_diff, _depth = trace.events[i]
-    dom = f"  · {len(d_diff)} Domänen geändert" if d_diff else ""
+    event = trace.events[i]
+    kind, _focus, overlay, a_diff, d_diff, _depth = event
+    focus = event_focus(event)
+    dom = f"  · {len(d_diff) // 2} Domänen geändert" if d_diff else ""
     if kind == START:
         return "Start der Suche" + dom, "muted"
     if kind == ASSIGN:
-        parts = [f"({r},{c})←{SHORT[v]}" for (r, c), v in a_diff if v is not None][:3]
+        parts = [f"({r},{c})←{SHORT[v]}" for (r, c), v in diff_pairs(a_diff) if v is not None][:3]
         return " ".join(parts) + " ✓" + dom, "ok"
     if kind == REJECT:
         r, c = focus[0]
@@ -1031,7 +1100,8 @@ def run_gui(args, searches):
             else:
                 self.render()
             self.lbl_step.config(text=f"Suche läuft … {elapsed:.0f} s")
-            self.lbl_action.config(text=f"{fmt(len(rec.events))} Schritte aufgezeichnet.\n"
+            self.lbl_action.config(text=f"{fmt(len(rec.events))} Schritte aufgezeichnet "
+                                        f"({approx_mb(len(rec.events))}).\n"
                                         f"Danach kannst du sie Schritt für Schritt abspielen.",
                                    fg=COLORS["muted"])
             self.stat_labels["assign"].config(text=fmt(rec.n_assign))
@@ -1194,7 +1264,7 @@ def run_gui(args, searches):
             if ev:
                 color = {START: "ok", ASSIGN: "ok", REJECT: "bad", PRUNED: "bad",
                          BACKTRACK: "bt", SOLUTION: "solution"}[kind]
-                for cell in ev[1]:
+                for cell in event_focus(ev):
                     highlight[cell] = COLORS[color]
             show_marks = self.show_domains.get() and self.cell >= 20
 
@@ -1207,7 +1277,7 @@ def run_gui(args, searches):
                     marks = None
                     if cell in t.given:
                         bg, color = COLORS["given_bg"], COLORS["given"]
-                    elif kind in (REJECT, PRUNED) and cell == ev[1][0]:
+                    elif kind in (REJECT, PRUNED) and cell == ev[1][0]:  # REJECT speichert Fokus
                         bg, color, value = COLORS["assigned"], COLORS["bad"], ev[2]
                     elif value is not None:
                         bg = COLORS["assigned"]
@@ -1310,8 +1380,8 @@ def main():
                         choices=[d.name for d in csp.Difficulty] + [d.name.lower() for d in csp.Difficulty],
                         help=f"Schwierigkeit (Standard: {DEFAULT_DIFFICULTY})")
     parser.add_argument("--max-steps", type=int, default=MAX_STEPS,
-                        help=f"maximale Anzahl aufgezeichneter Schritte, 0 = unbegrenzt "
-                             f"(Standard: {MAX_STEPS})")
+                        help="festes Schrittlimit (Standard: keins; geschützt wird nur der "
+                             "Arbeitsspeicher, siehe MAX_MEMORY_SHARE)")
     parser.add_argument("--time-limit", type=float, default=TIME_LIMIT,
                         help="Zeitlimit der Suche in Sekunden, 0 = keins (Standard: keins)")
     parser.add_argument("--list", action="store_true", help="verfügbare Suchfunktionen anzeigen")
@@ -1343,7 +1413,8 @@ def main():
             print(f"Puzzle: {g.size}×{g.size}, {len(rec_box['r'].init_a)} Vorgaben")
         rec = rec_box.get("r")
         if thread.is_alive() and rec is not None:
-            print(f"  … {fmt(len(rec.events))} Schritte, {fmt(rec.n_assign)} Belegungen, "
+            print(f"  … {fmt(len(rec.events))} Schritte ({approx_mb(len(rec.events))}), "
+                  f"{fmt(rec.n_assign)} Belegungen, "
                   f"{fmt(rec.n_backtrack)} Backtracks, Tiefe {rec.node_depth}", flush=True)
     if "error" in box:
         raise box["error"]
