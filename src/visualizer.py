@@ -51,7 +51,7 @@ from pathlib import Path
 # Welche Suchfunktion aus csp_solver.py standardmäßig visualisiert wird.
 # Muss der Name einer Funktion in csp_solver.py sein.
 # ==========================================================================
-search_variant = "complete_search"
+search_variant = "complete_search" 
 
 # Standard-Puzzle (wird an make_puzzle(size, difficulty) aus csp_solver.py übergeben).
 # None = Größe automatisch aus csp_solver.py lesen (z.B. "LollipopGitter(15)" unten in der Datei).
