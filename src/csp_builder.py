@@ -6,10 +6,10 @@ from abc import ABC, abstractmethod
 
 # Wertebereich für Zellen im Gitter
 class Domain(Enum):
-    EMPTY = 0
+    CIRCLE = 0
     HORIZONTAL_LINE = 1
     VERTICAL_LINE = 2
-    CIRCLE = 3
+    EMPTY = 3
 
 # Schwierigkeit des Gitters
 class Difficulty(Enum):
@@ -304,82 +304,37 @@ class LollipopGitter():
             self.add_constraint(RowColumnConstraint(x, self.size))
             self.add_constraint(AdjacentCellConstraint(x, self.size))
         assignment = dict()
-
-        assignment[(0,3)] = Domain.HORIZONTAL_LINE
-        assignment[(0,8)] = Domain.CIRCLE
-        assignment[(0,10)] = Domain.HORIZONTAL_LINE
-        assignment[(0,16)] = Domain.CIRCLE
-        assignment[(0,21)] = Domain.HORIZONTAL_LINE
-        assignment[(1,2)] = Domain.CIRCLE
-        assignment[(1,14)] = Domain.CIRCLE
-        assignment[(1,19)] = Domain.HORIZONTAL_LINE
-        assignment[(2,16)] = Domain.HORIZONTAL_LINE
-        assignment[(2,18)] = Domain.CIRCLE
-        assignment[(3,6)] = Domain.VERTICAL_LINE
-        assignment[(3,24)] = Domain.VERTICAL_LINE
-        assignment[(4,3)] = Domain.HORIZONTAL_LINE
-        assignment[(4,9)] = Domain.HORIZONTAL_LINE
-        assignment[(5,0)] = Domain.CIRCLE
-        assignment[(5,11)] = Domain.CIRCLE
-        assignment[(5,17)] = Domain.HORIZONTAL_LINE
-        assignment[(5,22)] = Domain.VERTICAL_LINE
-        assignment[(6,5)] = Domain.VERTICAL_LINE
-        assignment[(6,16)] = Domain.VERTICAL_LINE
-        assignment[(7,0)] = Domain.VERTICAL_LINE
-        assignment[(7,3)] = Domain.CIRCLE
-        assignment[(7,7)] = Domain.CIRCLE
-        assignment[(7,12)] = Domain.VERTICAL_LINE
-        assignment[(7,24)] = Domain.CIRCLE
-        assignment[(8,9)] = Domain.CIRCLE
-        assignment[(8,22)] = Domain.VERTICAL_LINE
-        assignment[(9,1)] = Domain.VERTICAL_LINE
-        assignment[(9,18)] = Domain.HORIZONTAL_LINE
-        assignment[(10,6)] = Domain.HORIZONTAL_LINE
-        assignment[(10,14)] = Domain.CIRCLE
-        assignment[(10,24)] = Domain.HORIZONTAL_LINE
-        assignment[(11,0)] = Domain.VERTICAL_LINE
-        assignment[(11,5)] = Domain.CIRCLE
-        assignment[(11,19)] = Domain.HORIZONTAL_LINE
-        assignment[(12,10)] = Domain.HORIZONTAL_LINE
-        assignment[(13,1)] = Domain.VERTICAL_LINE
-        assignment[(13,14)] = Domain.CIRCLE
-        assignment[(14,3)] = Domain.VERTICAL_LINE
-        assignment[(14,20)] = Domain.VERTICAL_LINE
-        assignment[(14,23)] = Domain.HORIZONTAL_LINE
-        assignment[(15,10)] = Domain.VERTICAL_LINE
-        assignment[(15,16)] = Domain.HORIZONTAL_LINE
-        assignment[(16,0)] = Domain.CIRCLE
-        assignment[(16,7)] = Domain.CIRCLE
-        assignment[(16,14)] = Domain.CIRCLE
-        assignment[(16,22)] = Domain.CIRCLE
-        assignment[(17,4)] = Domain.CIRCLE
-        assignment[(17,17)] = Domain.CIRCLE
-        assignment[(18,3)] = Domain.CIRCLE
-        assignment[(18,8)] = Domain.CIRCLE
-        assignment[(18,13)] = Domain.CIRCLE
-        assignment[(19,6)] = Domain.HORIZONTAL_LINE
-        assignment[(19,10)] = Domain.CIRCLE
-        assignment[(19,17)] = Domain.VERTICAL_LINE
-        assignment[(19,22)] = Domain.VERTICAL_LINE
-        assignment[(19,24)] = Domain.CIRCLE
-        assignment[(20,0)] = Domain.VERTICAL_LINE
-        assignment[(20,3)] = Domain.HORIZONTAL_LINE
-        assignment[(20,12)] = Domain.CIRCLE
-        assignment[(20,24)] = Domain.VERTICAL_LINE
-        assignment[(21,10)] = Domain.HORIZONTAL_LINE
-        assignment[(21,21)] = Domain.HORIZONTAL_LINE
-        assignment[(22,14)] = Domain.HORIZONTAL_LINE
-        assignment[(22,19)] = Domain.CIRCLE
-        assignment[(23,10)] = Domain.VERTICAL_LINE
-        assignment[(23,23)] = Domain.VERTICAL_LINE
-        assignment[(24,1)] = Domain.CIRCLE
-        assignment[(24,3)] = Domain.HORIZONTAL_LINE
-        assignment[(24,8)] = Domain.VERTICAL_LINE
-        assignment[(24,12)] = Domain.HORIZONTAL_LINE
-        assignment[(24,17)] = Domain.HORIZONTAL_LINE
-
+        assignment[(0,4)] = Domain.VERTICAL_LINE
+        assignment[(0,6)] = Domain.HORIZONTAL_LINE
+        assignment[(1,1)] = Domain.VERTICAL_LINE
+        assignment[(1,10)] = Domain.CIRCLE
+        assignment[(2,0)] = Domain.CIRCLE
+        assignment[(2,11)] = Domain.HORIZONTAL_LINE
+        assignment[(3,8)] = Domain.VERTICAL_LINE
+        assignment[(4,3)] = Domain.CIRCLE
+        assignment[(4,13)] = Domain.VERTICAL_LINE
+        assignment[(5,7)] = Domain.CIRCLE
+        assignment[(6,0)] = Domain.VERTICAL_LINE
+        assignment[(6,13)] = Domain.HORIZONTAL_LINE
+        assignment[(7,6)] = Domain.HORIZONTAL_LINE
+        assignment[(7,9)] = Domain.CIRCLE
+        assignment[(8,0)] = Domain.CIRCLE
+        assignment[(8,3)] = Domain.CIRCLE
+        assignment[(8,7)] = Domain.HORIZONTAL_LINE
+        assignment[(8,12)] = Domain.CIRCLE
+        assignment[(10,2)] = Domain.VERTICAL_LINE
+        assignment[(11,12)] = Domain.VERTICAL_LINE
+        assignment[(11,14)] = Domain.CIRCLE
+        assignment[(12,1)] = Domain.CIRCLE
+        assignment[(12,6)] = Domain.CIRCLE
+        assignment[(13,10)] = Domain.HORIZONTAL_LINE
+        assignment[(14,3)] = Domain.HORIZONTAL_LINE
+        assignment[(14,5)] = Domain.VERTICAL_LINE
+        assignment[(14,7)] = Domain.CIRCLE
+        assignment[(14,12)] = Domain.HORIZONTAL_LINE
         return assignment
     
+
 if __name__ == '__main__':
     x = LollipopGitter(15)
     assignment = x.build_puzzle(Difficulty.HARD)
