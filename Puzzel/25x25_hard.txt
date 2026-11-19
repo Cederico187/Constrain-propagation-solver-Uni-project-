@@ -1,4 +1,4 @@
-        def build_puzzle(self, difficulty: Difficulty) -> Dict:
+    def build_puzzle(self, difficulty: Difficulty) -> Dict:
         for x in self.variables:
             self.add_constraint(RowColumnConstraint(x, self.size))
             self.add_constraint(AdjacentCellConstraint(x, self.size))
