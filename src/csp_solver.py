@@ -33,22 +33,23 @@ def backtracking_search(gitter : csp.LollipopGitter, assignment):
 
 
 
-def constraint_propagation(gitter: csp.LollipopGitter, assignment: dict, variable: Tuple[int,int], unassigned: list, domains: dict):
-    for constraint in gitter.constraints[variable]:
-        for var in constraint.variables:
-            if var in unassigned:
-                for possible_domain in domains[var]:
-                    local_assignment = {variable: assignment[variable]}
-                    local_assignment[var] = possible_domain
-                    if not (gitter.consistent(var,local_assignment)):
-                        domains[var].remove(possible_domain)
+def constraint_propagation(gitter: csp.LollipopGitter, assignment: dict, unassigned: list, domains: dict):
+    for variable in assignment:    
+        for constraint in gitter.constraints[variable]:
+            for var in constraint.variables:
+                if var in unassigned:
+                    for possible_domain in domains[var]:
+                        local_assignment = {variable: assignment[variable]}
+                        local_assignment[var] = possible_domain
+                        if not (constraint.satisfied(local_assignment)):
+                            domains[var].remove(possible_domain)
 
 def forward_check(gitter: csp.LollipopGitter, assignment: dict, variable: Tuple[int,int], unassigned: list, domains: dict):
     for constraint in gitter.constraints[variable]:
         var = constraint.cell
         if var in unassigned:
             for possible_domain in domains[var]:
-                local_assignment = {variable: assignment[variable]}
+                local_assignment = assignment.copy()
                 local_assignment[var] = possible_domain
                 if not (constraint.satisfied(local_assignment)):
                     domains[var].remove(possible_domain)
@@ -100,10 +101,10 @@ def forward_checking_search_with_heuristic(gitter: csp.LollipopGitter, assignmen
     return None
 
 def complete_search(gitter: csp.LollipopGitter, assignment: dict ,domains: dict):
-    #TODO
     if len(assignment) == len(gitter.variables):
            return assignment
     unassigned = [v for v in gitter.variables if v not in assignment]
+    constraint_propagation(gitter, assignment,unassigned,domains)
     # MRV Heuristik
     sorted_variables = sorted(unassigned, key= lambda x: len(domains[x]))
     first = sorted_variables[0]
@@ -115,12 +116,14 @@ def complete_search(gitter: csp.LollipopGitter, assignment: dict ,domains: dict)
         # if we're still consistent, we recurse (continue)
         if gitter.consistent(first, local_assignment):
             local_domains = dict_copy(domains)
-            constraint_propagation(gitter, local_assignment, first,unassigned, local_domains)
-            result = complete_search(gitter, local_assignment, local_domains)
+            forward_check(gitter, local_assignment, first,unassigned, local_domains)
+            result = forward_checking_search_with_heuristic(gitter, local_assignment, local_domains)
         # if we didn't find the result, we will end up backtracking
             if result is not None:
                 return result
     return None
+
+
     
 
 
