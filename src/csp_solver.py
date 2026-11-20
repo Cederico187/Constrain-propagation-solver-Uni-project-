@@ -127,28 +127,74 @@ def complete_search(gitter: csp.LollipopGitter, assignment: dict ,domains: dict)
 
     
 
+def eingabe():
+    while True:
+        try:
+            difficulty = input("Wählen sie Schwierigkeit Normal oder Schwer\n")
+            if difficulty not in ("Normal","Schwer"):
+                raise ValueError()
+            break
+        except ValueError:
+            print("Falsche Eingabe!")
 
-def solve_puzzle(search_function, gitter: csp.LollipopGitter, assignment: dict) -> None:
-    #TODO
-    solution = search_function(gitter,assignment)
-    #TODO
-    # Logging(Ausgabe)
-    # a) Probleminstanz
-    # b) Lösung, sofern der Solver nicht nach Erreichen des Zeitlimits die Suche abgegrochen hat
-    # c) Dauer der Suche
-    # d) Anzahl der Variablenbelegungen
-    # e) Anzahl der Backtrackingschritte
-    print(gitter.toString(solution))
-
-def make_puzzle(size: int,difficulty: csp.Difficulty) -> Tuple[csp.LollipopGitter, dict]:
+    while True:
+        try: 
+            size = input("Wählen sie eine der folgenden Puzzle aus: 6, 10, 15 \n")
+            size = int(size)
+            if size not in(6, 10, 15):
+                raise ValueError
+            break
+        except ValueError:
+            print("Falsche Eingabe!")
+    while True:
+        try:
+            loesen = input("Wählen sie einen Lösungsalgorithmus:  bs = backtracking_search, fcs = forward_checking_search, fcsH = forward_checking_search_with_heuristic, \n cs = complete_search\n")
+            if loesen not in ("bs","fcs","fcsH","cs"):
+                raise ValueError
+            break
+        except ValueError:
+            print("Falsche Eingabe!")
+    if difficulty == "Normal":
+        difficulty = csp.Difficulty.MEDIUM
+    if difficulty == "Schwer":
+        difficulty = csp.Difficulty.MEDIUM
+    return difficulty, size, loesen
+    
+def make_puzzle(size ,difficulty) -> Tuple[csp.LollipopGitter, dict]:
     gitter = csp.LollipopGitter(size)
     start_assignment = gitter.build_puzzle(difficulty)
     return (gitter,start_assignment)
 
-gitter = csp.LollipopGitter(15)
-assignment = gitter.build_puzzle(csp.Difficulty.HARD)
-print(gitter.toString(assignment))
-# solution = backtracking_search(gitter,assignment, gitter.domains)
-solution = complete_search(gitter,assignment, dict_copy(gitter.domains))
-sorted = dict(sorted(solution.items(), key = operator.itemgetter(0)))
-print(gitter.toString(sorted))
+def solve_puzzle(loesen, gitter, start_assignment, variable: Tuple[int,int], unassigned: list, domains: dict):
+    if loesen == "bs":
+        solution = backtracking_search(gitter,start_assignment)
+    if loesen == "fcs":
+        solution = forward_checking_search(gitter,start_assignment,variable, unassigned, domains)
+    if loesen == "fcsH":
+        solution = forward_checking_search_with_heuristic(gitter,start_assignment,domains)
+    if loesen == "cs ":
+        solution = complete_search(gitter,start_assignment,domains)
+    # Logging(Ausgabe)
+    # a) Probleminstanz
+    print("Probleminstanz:" + eingabe())
+    # b) Lösung, sofern der Solver nicht nach Erreichen des Zeitlimits die Suche abgegrochen hat
+    """if dauer <= 60:
+        print(gitter.toString(solution))
+    else:
+        print("Lösung ist wegen überschrittenen Zeitlimit abgebrochen")
+    # c) Dauer der Suche
+    print("Die Dauer der Lösungssuche beträgt"+ dauer +"Sekunden")
+    # d) Anzahl der Variablenbelegungen
+    print("Anzahl der Variablenbelegung:"+ variablenbelegung)
+    # e) Anzahl der Backtrackingschritte
+    print("Anzahl der Backtrackingschritte:"+ backtracking_schritte)
+    dauer, variablenbelegung, backtracking_schritte"""
+    #TODO: Dauer, variablenbelegung,backtrackingschritte
+    
+
+def main():
+    difficulty, size, loesen = eingabe()
+    gitter, start_assignment, variable = make_puzzle(size,difficulty)
+    solve_puzzle(loesen, gitter, start_assignment, variable, unassigned:list, domains: dict)
+
+main()
