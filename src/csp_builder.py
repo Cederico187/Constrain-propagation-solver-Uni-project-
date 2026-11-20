@@ -54,7 +54,6 @@ class AdjacentCellConstraint(Constraint):
             case Domain.EMPTY:
                 return True
             case Domain.HORIZONTAL_LINE:
-                yes = 1
                 if self.cell_above in assignment and assignment[self.cell_above] != Domain.EMPTY:
                     return False
                 if self.cell_below in assignment and assignment[self.cell_below] != Domain.EMPTY:
@@ -63,26 +62,27 @@ class AdjacentCellConstraint(Constraint):
                     if assignment[self.cell_left] == Domain.VERTICAL_LINE or assignment[self.cell_left] == Domain.HORIZONTAL_LINE:
                         return False
                     if assignment[self.cell_left] == Domain.CIRCLE:
-                        yes += 1
+                        if self.cell_right in assignment and assignment[self.cell_right] != Domain.EMPTY:
+                            return False
                     if assignment[self.cell_left] == Domain.EMPTY:
-                        yes -= 1
+                        if self.cell_right in assignment and assignment[self.cell_right] != Domain.CIRCLE:
+                            return False
                 if self.cell_right in assignment:
                     if assignment[self.cell_right] == Domain.VERTICAL_LINE or assignment[self.cell_right] == Domain.HORIZONTAL_LINE:
                         return False
                     if assignment[self.cell_right] == Domain.CIRCLE:
-                        yes += 1
+                        if self.cell_left in assignment and assignment[self.cell_left] != Domain.EMPTY:
+                            return False
                     if assignment[self.cell_right] == Domain.EMPTY:
-                        yes -= 1
+                        if self.cell_left in assignment and assignment[self.cell_left] != Domain.CIRCLE:
+                            return False
                 if self.cell_right in assignment and self.cell_left in assignment:
                     if assignment[self.cell_left] == assignment[self.cell_right]:
                         return False
-                if self.cell_left not in self.variables or self.cell_right not in self.variables:
-                    if yes < 1:
-                        return False
+                
                 
 
             case Domain.VERTICAL_LINE:
-                yes = 1
                 if self.cell_right in assignment and assignment[self.cell_right] != Domain.EMPTY:
                     return False
                 if self.cell_left in assignment and assignment[self.cell_left] != Domain.EMPTY:
@@ -91,49 +91,83 @@ class AdjacentCellConstraint(Constraint):
                     if assignment[self.cell_above] == Domain.VERTICAL_LINE or assignment[self.cell_above] == Domain.HORIZONTAL_LINE:
                         return False
                     if assignment[self.cell_above] == Domain.CIRCLE:
-                        yes += 1
+                        if self.cell_below in assignment and assignment[self.cell_below] != Domain.EMPTY:
+                            return False
                     if assignment[self.cell_above] == Domain.EMPTY:
-                        yes -= 1
+                        if self.cell_below in assignment and assignment[self.cell_below] != Domain.CIRCLE:
+                            return False
                 if self.cell_below in assignment:
                     if assignment[self.cell_below] == Domain.VERTICAL_LINE or assignment[self.cell_below] == Domain.HORIZONTAL_LINE:
                         return False
                     if assignment[self.cell_below] == Domain.CIRCLE:
-                        yes += 1
+                        if self.cell_above in assignment and assignment[self.cell_above] != Domain.EMPTY:
+                            return False
                     if assignment[self.cell_below] == Domain.EMPTY:
-                        yes -= 1
+                        if self.cell_above in assignment and assignment[self.cell_above] != Domain.CIRCLE:
+                            return False
                 if self.cell_above in assignment and self.cell_below in assignment:
                     if assignment[self.cell_above] == assignment[self.cell_below]:
                         return False
-                if self.cell_above not in self.variables or self.cell_below not in self.variables:
-                    if yes < 1:
-                        return False
             case Domain.CIRCLE:
-                left = right = above = below = 0
+                yes = 0
                 if self.cell_right in assignment:
                     if assignment[self.cell_right] == Domain.CIRCLE or assignment[self.cell_right] == Domain.VERTICAL_LINE :
                         return False
                     if assignment[self.cell_right] == Domain.HORIZONTAL_LINE:
-                        right = 1
+                        yes = 1
+                        if(self.cell_left) in assignment:
+                            if assignment[self.cell_left] != Domain.EMPTY:
+                                return False
+                        if(self.cell_above) in assignment:
+                            if assignment[self.cell_above] != Domain.EMPTY:
+                                return False
+                        if(self.cell_below) in assignment:
+                            if assignment[self.cell_below] != Domain.EMPTY:
+                                return False
                 if self.cell_left in assignment:
                     if assignment[self.cell_left] == Domain.CIRCLE or assignment[self.cell_left] == Domain.VERTICAL_LINE :
                         return False
                     if assignment[self.cell_left] == Domain.HORIZONTAL_LINE:
-                        left = 1
+                        yes = 1
+                        if(self.cell_right) in assignment:
+                            if assignment[self.cell_right] != Domain.EMPTY:
+                                return False
+                        if(self.cell_above) in assignment:
+                            if assignment[self.cell_above] != Domain.EMPTY:
+                                return False
+                        if(self.cell_below) in assignment:
+                            if assignment[self.cell_below] != Domain.EMPTY:
+                                return False
                 if self.cell_above in assignment:
                     if assignment[self.cell_above] == Domain.CIRCLE or assignment[self.cell_above] == Domain.HORIZONTAL_LINE :
                         return False
                     if assignment[self.cell_above] == Domain.VERTICAL_LINE:
-                        above = 1
+                        yes = 1
+                        if(self.cell_right) in assignment:
+                            if assignment[self.cell_right] != Domain.EMPTY:
+                                return False
+                        if(self.cell_left) in assignment:
+                            if assignment[self.cell_left] != Domain.EMPTY:
+                                return False
+                        if(self.cell_below) in assignment:
+                            if assignment[self.cell_below] != Domain.EMPTY:
+                                return False
                 if self.cell_below in assignment:
                     if assignment[self.cell_below] == Domain.CIRCLE or assignment[self.cell_below] == Domain.HORIZONTAL_LINE :
                         return False
                     if assignment[self.cell_below] == Domain.VERTICAL_LINE:
-                        below = 1
-                if left + right + above + below >1:
-                    return False
-                
-                if all(cell in assignment for cell in self.variables):
-                    if left + right + above + below != 1:
+                        yes = 1
+                        if(self.cell_right) in assignment:
+                            if assignment[self.cell_right] != Domain.EMPTY:
+                                return False
+                        if(self.cell_above) in assignment:
+                            if assignment[self.cell_above] != Domain.EMPTY:
+                                return False
+                        if(self.cell_left) in assignment:
+                            if assignment[self.cell_left] != Domain.EMPTY:
+                                return False
+                if all(v in assignment for v in self.variables):    
+                    if yes == 0:
                         return False
         return True
 
@@ -346,8 +380,3 @@ class LollipopGitter():
         assignment[(14,13)] = Domain.CIRCLE
         return assignment
     
-if __name__ == '__main__':
-    x = LollipopGitter(15)
-    assignment = x.build_puzzle(Difficulty.HARD)
-
-    print(x.toString(assignment))

@@ -2,6 +2,7 @@ import csp_builder as csp
 from typing import Tuple
 import operator
 from operator import itemgetter
+import puzzle_lib as lib
 
 def dict_copy(old_dict: dict) -> dict:
     copy = {}
@@ -33,22 +34,23 @@ def backtracking_search(gitter : csp.LollipopGitter, assignment):
 
 
 
-def constraint_propagation(gitter: csp.LollipopGitter, assignment: dict, variable: Tuple[int,int], unassigned: list, domains: dict):
-    for constraint in gitter.constraints[variable]:
-        for var in constraint.variables:
-            if var in unassigned:
-                for possible_domain in domains[var]:
-                    local_assignment = {variable: assignment[variable]}
-                    local_assignment[var] = possible_domain
-                    if not (gitter.consistent(var,local_assignment)):
-                        domains[var].remove(possible_domain)
+def constraint_propagation(gitter: csp.LollipopGitter, assignment: dict, unassigned: list, domains: dict):
+    for variable in assignment:    
+        for constraint in gitter.constraints[variable]:
+            for var in constraint.variables:
+                if var in unassigned:
+                    for possible_domain in domains[var]:
+                        local_assignment = {variable: assignment[variable]}
+                        local_assignment[var] = possible_domain
+                        if not (constraint.satisfied(local_assignment)):
+                            domains[var].remove(possible_domain)
 
 def forward_check(gitter: csp.LollipopGitter, assignment: dict, variable: Tuple[int,int], unassigned: list, domains: dict):
     for constraint in gitter.constraints[variable]:
         var = constraint.cell
         if var in unassigned:
             for possible_domain in domains[var]:
-                local_assignment = {variable: assignment[variable]}
+                local_assignment = assignment.copy()
                 local_assignment[var] = possible_domain
                 if not (constraint.satisfied(local_assignment)):
                     domains[var].remove(possible_domain)
@@ -100,10 +102,10 @@ def forward_checking_search_with_heuristic(gitter: csp.LollipopGitter, assignmen
     return None
 
 def complete_search(gitter: csp.LollipopGitter, assignment: dict ,domains: dict):
-    #TODO
     if len(assignment) == len(gitter.variables):
            return assignment
     unassigned = [v for v in gitter.variables if v not in assignment]
+    constraint_propagation(gitter, assignment,unassigned,domains)
     # MRV Heuristik
     sorted_variables = sorted(unassigned, key= lambda x: len(domains[x]))
     first = sorted_variables[0]
@@ -115,36 +117,84 @@ def complete_search(gitter: csp.LollipopGitter, assignment: dict ,domains: dict)
         # if we're still consistent, we recurse (continue)
         if gitter.consistent(first, local_assignment):
             local_domains = dict_copy(domains)
-            constraint_propagation(gitter, local_assignment, first,unassigned, local_domains)
-            result = complete_search(gitter, local_assignment, local_domains)
+            forward_check(gitter, local_assignment, first,unassigned, local_domains)
+            result = forward_checking_search_with_heuristic(gitter, local_assignment, local_domains)
         # if we didn't find the result, we will end up backtracking
             if result is not None:
                 return result
     return None
+
+
     
 
+def eingabe():
+    while True:
+        try:
+            difficulty = input("Wählen sie Schwierigkeit Normal oder Schwer\n")
+            if difficulty not in ("Normal","Schwer"):
+                raise ValueError()
+            break
+        except ValueError:
+            print("Falsche Eingabe!")
 
-def solve_puzzle(search_function, gitter: csp.LollipopGitter, assignment: dict) -> None:
-    #TODO
-    solution = search_function(gitter,assignment)
-    #TODO
-    # Logging(Ausgabe)
-    # a) Probleminstanz
-    # b) Lösung, sofern der Solver nicht nach Erreichen des Zeitlimits die Suche abgegrochen hat
-    # c) Dauer der Suche
-    # d) Anzahl der Variablenbelegungen
-    # e) Anzahl der Backtrackingschritte
-    print(gitter.toString(solution))
-
-def make_puzzle(size: int,difficulty: csp.Difficulty) -> Tuple[csp.LollipopGitter, dict]:
+    while True:
+        try: 
+            size = input("Wählen sie eine der folgenden Puzzle aus: 6, 10, 15 \n")
+            size = int(size)
+            if size not in(6, 10, 15):
+                raise ValueError
+            break
+        except ValueError:
+            print("Falsche Eingabe!")
+    while True:
+        try:
+            loesen = input("Wählen sie einen Lösungsalgorithmus:  bs = backtracking_search, fcs = forward_checking_search, fcsH = forward_checking_search_with_heuristic, \n cs = complete_search\n")
+            if loesen not in ("bs","fcs","fcsH","cs"):
+                raise ValueError
+            break
+        except ValueError:
+            print("Falsche Eingabe!")
+    if difficulty == "Normal":
+        difficulty = csp.Difficulty.MEDIUM
+    if difficulty == "Schwer":
+        difficulty = csp.Difficulty.MEDIUM
+    return difficulty, size, loesen
+    
+def make_puzzle(size ,difficulty) -> Tuple[csp.LollipopGitter, dict]:
     gitter = csp.LollipopGitter(size)
     start_assignment = gitter.build_puzzle(difficulty)
     return (gitter,start_assignment)
 
-gitter = csp.LollipopGitter(15)
-assignment = gitter.build_puzzle(csp.Difficulty.HARD)
-print(gitter.toString(assignment))
-# solution = backtracking_search(gitter,assignment, gitter.domains)
-solution = complete_search(gitter,assignment, dict_copy(gitter.domains))
-sorted = dict(sorted(solution.items(), key = operator.itemgetter(0)))
-print(gitter.toString(sorted))
+def solve_puzzle(loesen, gitter, start_assignment, variable: Tuple[int,int], unassigned: list, domains: dict):
+    if loesen == "bs":
+        solution = backtracking_search(gitter,start_assignment)
+    if loesen == "fcs":
+        solution = forward_checking_search(gitter,start_assignment,variable, unassigned, domains)
+    if loesen == "fcsH":
+        solution = forward_checking_search_with_heuristic(gitter,start_assignment,domains)
+    if loesen == "cs ":
+        solution = complete_search(gitter,start_assignment,domains)
+    # Logging(Ausgabe)
+    # a) Probleminstanz
+    print("Probleminstanz:" + eingabe())
+    # b) Lösung, sofern der Solver nicht nach Erreichen des Zeitlimits die Suche abgegrochen hat
+    """if dauer <= 60:
+        print(gitter.toString(solution))
+    else:
+        print("Lösung ist wegen überschrittenen Zeitlimit abgebrochen")
+    # c) Dauer der Suche
+    print("Die Dauer der Lösungssuche beträgt"+ dauer +"Sekunden")
+    # d) Anzahl der Variablenbelegungen
+    print("Anzahl der Variablenbelegung:"+ variablenbelegung)
+    # e) Anzahl der Backtrackingschritte
+    print("Anzahl der Backtrackingschritte:"+ backtracking_schritte)
+    dauer, variablenbelegung, backtracking_schritte"""
+    #TODO: Dauer, variablenbelegung,backtrackingschritte
+    
+
+def main():
+    difficulty, size, loesen = eingabe()
+    gitter, start_assignment, variable = make_puzzle(size,difficulty)
+    solve_puzzle(loesen, gitter, start_assignment, variable, unassigned:list, domains: dict)
+
+main()
