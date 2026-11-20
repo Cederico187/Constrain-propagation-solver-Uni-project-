@@ -2,6 +2,7 @@ import csp_builder as csp
 from typing import Tuple
 import operator
 from operator import itemgetter
+import puzzle_lib as lib
 
 def dict_copy(old_dict: dict) -> dict:
     copy = {}
