@@ -56,7 +56,7 @@ def forward_check(gitter: csp.LollipopGitter, assignment: dict, variable: Tuple[
         var = constraint.cell
         if var in unassigned:
             for possible_domain in domains[var]:
-                local_assignment = assignment.copy()
+                local_assignment = {variable: assignment[variable]}
                 local_assignment[var] = possible_domain
                 if not (constraint.satisfied(local_assignment)):
                     domains[var].remove(possible_domain)
@@ -80,8 +80,8 @@ def forward_checking_search(gitter: csp.LollipopGitter, assignment: dict, domain
         # if we're still consistent, we recurse (continue)
         if gitter.consistent(first, local_assignment):
             local_domains = dict_copy(domains)
-            forward_check(gitter, local_assignment, first, unassigned, local_domains,start_time) 
-            result = forward_checking_search(gitter, local_assignment, local_domains)
+            forward_check(gitter, local_assignment, first, unassigned, local_domains) 
+            result = forward_checking_search(gitter, local_assignment, local_domains,start_time)
         # if we didn't find the result, we will end up backtracking
             if result is not None:
                 return result

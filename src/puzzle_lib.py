@@ -1,38 +1,35 @@
 import csp_builder as csp
 def size15_Hard():
-    size15_hard ={}
-    size15_hard[(0,2)] = csp.Domain.HORIZONTAL_LINE
-    size15_hard[(0,5)] = csp.Domain.HORIZONTAL_LINE
-    size15_hard[(0,12)] = csp.Domain.CIRCLE
-    size15_hard[(1,1)] = csp.Domain.HORIZONTAL_LINE
-    size15_hard[(1,9)] = csp.Domain.HORIZONTAL_LINE
-    size15_hard[(1,14)] = csp.Domain.CIRCLE
-    size15_hard[(2,3)] = csp.Domain.HORIZONTAL_LINE
-    size15_hard[(2,5)] = csp.Domain.CIRCLE
-    size15_hard[(2,11)] = csp.Domain.CIRCLE
-    size15_hard[(3,8)] = csp.Domain.CIRCLE
-    size15_hard[(4,13)] = csp.Domain.VERTICAL_LINE
-    size15_hard[(5,4)] = csp.Domain.HORIZONTAL_LINE
-    size15_hard[(6,0)] = csp.Domain.HORIZONTAL_LINE
-    size15_hard[(6,12)] = csp.Domain.CIRCLE
-    size15_hard[(6,14)] = csp.Domain.VERTICAL_LINE
-    size15_hard[(7,5)] = csp.Domain.HORIZONTAL_LINE
-    size15_hard[(7,8)] = csp.Domain.CIRCLE
-    size15_hard[(8,2)] = csp.Domain.CIRCLE
-    size15_hard[(9,0)] = csp.Domain.CIRCLE
-    size15_hard[(9,10)] = csp.Domain.CIRCLE
-    size15_hard[(10,4)] = csp.Domain.CIRCLE
-    size15_hard[(10,7)] = csp.Domain.CIRCLE
-    size15_hard[(11,9)] = csp.Domain.VERTICAL_LINE
-    size15_hard[(11,14)] = csp.Domain.VERTICAL_LINE
-    size15_hard[(12,2)] = csp.Domain.CIRCLE
-    size15_hard[(12,11)] = csp.Domain.VERTICAL_LINE
-    size15_hard[(13,1)] = csp.Domain.HORIZONTAL_LINE
-    size15_hard[(13,11)] = csp.Domain.CIRCLE
-    size15_hard[(14,4)] = csp.Domain.HORIZONTAL_LINE
-    size15_hard[(14,7)] = csp.Domain.HORIZONTAL_LINE
-    size15_hard[(14,13)] = csp.Domain.CIRCLE
-    return size15_hard
+    assignment={}
+    assignment[(0,4)] =csp.Domain.VERTICAL_LINE
+    assignment[(0,6)] =csp.Domain.HORIZONTAL_LINE
+    assignment[(1,1)] =csp.Domain.VERTICAL_LINE
+    assignment[(1,10)] =csp.Domain.CIRCLE
+    assignment[(2,0)] =csp.Domain.CIRCLE
+    assignment[(2,11)] =csp.Domain.HORIZONTAL_LINE
+    assignment[(3,8)] =csp.Domain.VERTICAL_LINE
+    assignment[(4,3)] =csp.Domain.CIRCLE
+    assignment[(4,13)] =csp.Domain.VERTICAL_LINE
+    assignment[(5,7)] =csp.Domain.CIRCLE
+    assignment[(6,0)] =csp.Domain.VERTICAL_LINE
+    assignment[(6,13)] =csp.Domain.HORIZONTAL_LINE
+    assignment[(7,6)] =csp.Domain.HORIZONTAL_LINE
+    assignment[(7,9)] =csp.Domain.CIRCLE
+    assignment[(8,0)] =csp.Domain.CIRCLE
+    assignment[(8,3)] =csp.Domain.CIRCLE
+    assignment[(8,7)] =csp.Domain.HORIZONTAL_LINE
+    assignment[(8,12)] =csp.Domain.CIRCLE
+    assignment[(10,2)] =csp.Domain.VERTICAL_LINE
+    assignment[(11,12)] =csp.Domain.VERTICAL_LINE
+    assignment[(11,14)] =csp.Domain.CIRCLE
+    assignment[(12,1)] =csp.Domain.CIRCLE
+    assignment[(12,6)] =csp.Domain.CIRCLE
+    assignment[(13,10)] =csp.Domain.HORIZONTAL_LINE
+    assignment[(14,3)] =csp.Domain.HORIZONTAL_LINE
+    assignment[(14,5)] =csp.Domain.VERTICAL_LINE
+    assignment[(14,7)] =csp.Domain.CIRCLE
+    assignment[(14,12)] =csp.Domain.HORIZONTAL_LINE
+    return assignment
 
 
 def size10_medium():
@@ -118,4 +115,10 @@ def size10_hard():
 
 def size6_medium():
     assignment = {}
+    assignment[(0,2)] = csp.Domain.CIRCLE
+    assignment[(1,1)] = csp.Domain.CIRCLE
+    assignment[(3,3)] = csp.Domain.CIRCLE
+    assignment[(3,5)] = csp.Domain.VERTICAL_LINE
+    assignment[(4,4)] = csp.Domain.VERTICAL_LINE
+    assignment[(5,1)] = csp.Domain.CIRCLE
     return assignment
