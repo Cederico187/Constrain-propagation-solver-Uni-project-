@@ -3,6 +3,7 @@ from typing import Tuple
 import operator
 from operator import itemgetter
 import puzzle_lib as lib
+import time
 
 def dict_copy(old_dict: dict) -> dict:
     copy = {}
@@ -11,8 +12,12 @@ def dict_copy(old_dict: dict) -> dict:
     return copy
 
 
-def backtracking_search(gitter : csp.LollipopGitter, assignment):
+def backtracking_search(gitter : csp.LollipopGitter, assignment, start_time):
     # assignment is complete if every variable is assigned (our base case)
+    elapsed_time = time.time()-start_time 
+
+    if(elapsed_time > 60):
+        return None
     if len(assignment) == len(gitter.variables):
         return assignment
 
@@ -21,12 +26,13 @@ def backtracking_search(gitter : csp.LollipopGitter, assignment):
 
     # get the every possible domain value of the first unassigned variable
     first = unassigned[0]
+    
     for value in gitter.domains[first]:
         local_assignment = assignment.copy()
         local_assignment[first] = value
         # if we're still consistent, we recurse (continue)
         if gitter.consistent(first, local_assignment):
-            result = backtracking_search(gitter, local_assignment)
+            result = backtracking_search(gitter, local_assignment,start_time)
             # if we didn't find the result, we will end up backtracking
             if result is not None:
                 return result
@@ -55,8 +61,12 @@ def forward_check(gitter: csp.LollipopGitter, assignment: dict, variable: Tuple[
                 if not (constraint.satisfied(local_assignment)):
                     domains[var].remove(possible_domain)
 
-def forward_checking_search(gitter: csp.LollipopGitter, assignment: dict, domains: dict):
+def forward_checking_search(gitter: csp.LollipopGitter, assignment: dict, domains: dict,start_time):
     #TODO
+    elapsed_time = time.time()-start_time 
+    
+    if(elapsed_time > 60):
+        return None
     if len(assignment) == len(gitter.variables):
             return assignment
     unassigned = [v for v in gitter.variables if v not in assignment]
@@ -70,7 +80,7 @@ def forward_checking_search(gitter: csp.LollipopGitter, assignment: dict, domain
         # if we're still consistent, we recurse (continue)
         if gitter.consistent(first, local_assignment):
             local_domains = dict_copy(domains)
-            forward_check(gitter, local_assignment, first, unassigned, local_domains) 
+            forward_check(gitter, local_assignment, first, unassigned, local_domains,start_time) 
             result = forward_checking_search(gitter, local_assignment, local_domains)
         # if we didn't find the result, we will end up backtracking
             if result is not None:
@@ -78,7 +88,11 @@ def forward_checking_search(gitter: csp.LollipopGitter, assignment: dict, domain
     return None
 
 
-def forward_checking_search_with_heuristic(gitter: csp.LollipopGitter, assignment: dict, domains: dict):
+def forward_checking_search_with_heuristic(gitter: csp.LollipopGitter, assignment: dict, domains: dict, start_time):
+    elapsed_time = time.time()-start_time 
+    
+    if(elapsed_time > 60):
+        return None
     if len(assignment) == len(gitter.variables):
             return assignment
     unassigned = [v for v in gitter.variables if v not in assignment]
@@ -95,13 +109,17 @@ def forward_checking_search_with_heuristic(gitter: csp.LollipopGitter, assignmen
         if gitter.consistent(first, local_assignment):
             local_domains = dict_copy(domains)
             forward_check(gitter, local_assignment, first, unassigned, local_domains) 
-            result = forward_checking_search_with_heuristic(gitter, local_assignment, local_domains)
+            result = forward_checking_search_with_heuristic(gitter, local_assignment, local_domains,start_time)
         # if we didn't find the result, we will end up backtracking
             if result is not None:
                 return result
     return None
 
-def complete_search(gitter: csp.LollipopGitter, assignment: dict ,domains: dict):
+def complete_search(gitter: csp.LollipopGitter, assignment: dict ,domains: dict, start_time):
+    elapsed_time = time.time()-start_time 
+    
+    if(elapsed_time > 60):
+        return None
     if len(assignment) == len(gitter.variables):
            return assignment
     unassigned = [v for v in gitter.variables if v not in assignment]
@@ -118,7 +136,7 @@ def complete_search(gitter: csp.LollipopGitter, assignment: dict ,domains: dict)
         if gitter.consistent(first, local_assignment):
             local_domains = dict_copy(domains)
             forward_check(gitter, local_assignment, first,unassigned, local_domains)
-            result = forward_checking_search_with_heuristic(gitter, local_assignment, local_domains)
+            result = forward_checking_search_with_heuristic(gitter, local_assignment, local_domains,start_time)
         # if we didn't find the result, we will end up backtracking
             if result is not None:
                 return result
@@ -168,20 +186,25 @@ def make_puzzle(size ,difficulty) -> Tuple[csp.LollipopGitter, dict]:
 
 def solve_puzzle(loesen, gitter, start_assignment, domains: dict):
     print(gitter.toString(start_assignment))
+    start_time = time.time()
     if loesen == "bs":
-        solution = backtracking_search(gitter,start_assignment)
+        solution = backtracking_search(gitter,start_assignment,start_time)
     if loesen == "fcs":
-        solution = forward_checking_search(gitter,start_assignment, dict_copy(domains))
+        solution = forward_checking_search(gitter,start_assignment, dict_copy(domains),start_time)
     if loesen == "fcsH":
-        solution = forward_checking_search_with_heuristic(gitter,start_assignment,domains)
+        solution = forward_checking_search_with_heuristic(gitter,start_assignment,domains,start_time)
     if loesen == "cs":
-        solution = complete_search(gitter,start_assignment,domains)
+        solution = complete_search(gitter,start_assignment,domains,start_time)
+    elapsed_time = time.time()-start_time
     # Logging(Ausgabe)
     # a) Probleminstanz
     
     # b) Lösung, sofern der Solver nicht nach Erreichen des Zeitlimits die Suche abgegrochen hat
     if(solution is not None):
         print(gitter.toString(solution))
+        print("Dauer: " + str(elapsed_time) + "Sekunden")
+    else:
+        print("Keine Loesung gefunden :(")
     """if dauer <= 60:
         print(gitter.toString(solution))
     else:
