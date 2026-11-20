@@ -1,6 +1,7 @@
 from enum import Enum
 from typing import List, Dict, Generic, Tuple
 from abc import ABC, abstractmethod
+import puzzle_lib as libP
 
 #fehler -> adjacenzcellconstraint?
 
@@ -79,10 +80,16 @@ class AdjacentCellConstraint(Constraint):
                 if self.cell_right in assignment and self.cell_left in assignment:
                     if assignment[self.cell_left] == assignment[self.cell_right]:
                         return False
-                
+                if self.cell_left not in self.variables:
+                    if self.cell_right in assignment and assignment[self.cell_right] != Domain.CIRCLE:
+                        return False
+                if self.cell_right not in self.variables:
+                    if self.cell_left in assignment and assignment[self.cell_left] != Domain.CIRCLE:
+                        return False
                 
 
             case Domain.VERTICAL_LINE:
+                
                 if self.cell_right in assignment and assignment[self.cell_right] != Domain.EMPTY:
                     return False
                 if self.cell_left in assignment and assignment[self.cell_left] != Domain.EMPTY:
@@ -107,6 +114,12 @@ class AdjacentCellConstraint(Constraint):
                             return False
                 if self.cell_above in assignment and self.cell_below in assignment:
                     if assignment[self.cell_above] == assignment[self.cell_below]:
+                        return False
+                if self.cell_above not in self.variables:
+                    if self.cell_below in assignment and assignment[self.cell_below] != Domain.CIRCLE:
+                        return False
+                if self.cell_below not in self.variables:
+                    if self.cell_above in assignment and assignment[self.cell_above] != Domain.CIRCLE:
                         return False
             case Domain.CIRCLE:
                 yes = 0
@@ -334,40 +347,24 @@ class LollipopGitter():
             return False
 
     def build_puzzle(self, difficulty: Difficulty) -> Dict:
+        self.difficulty = difficulty
         for x in self.variables:
             self.add_constraint(RowColumnConstraint(x, self.size))
             self.add_constraint(AdjacentCellConstraint(x, self.size))
-        assignment = dict()
-        assignment[(0,2)] = Domain.HORIZONTAL_LINE
-        assignment[(0,5)] = Domain.HORIZONTAL_LINE
-        assignment[(0,12)] = Domain.CIRCLE
-        assignment[(1,1)] = Domain.HORIZONTAL_LINE
-        assignment[(1,9)] = Domain.HORIZONTAL_LINE
-        assignment[(1,14)] = Domain.CIRCLE
-        assignment[(2,3)] = Domain.HORIZONTAL_LINE
-        assignment[(2,5)] = Domain.CIRCLE
-        assignment[(2,11)] = Domain.CIRCLE
-        assignment[(3,8)] = Domain.CIRCLE
-        assignment[(4,13)] = Domain.VERTICAL_LINE
-        assignment[(5,4)] = Domain.HORIZONTAL_LINE
-        assignment[(6,0)] = Domain.HORIZONTAL_LINE
-        assignment[(6,12)] = Domain.CIRCLE
-        assignment[(6,14)] = Domain.VERTICAL_LINE
-        assignment[(7,5)] = Domain.HORIZONTAL_LINE
-        assignment[(7,8)] = Domain.CIRCLE
-        assignment[(8,2)] = Domain.CIRCLE
-        assignment[(9,0)] = Domain.CIRCLE
-        assignment[(9,10)] = Domain.CIRCLE
-        assignment[(10,4)] = Domain.CIRCLE
-        assignment[(10,7)] = Domain.CIRCLE
-        assignment[(11,9)] = Domain.VERTICAL_LINE
-        assignment[(11,14)] = Domain.VERTICAL_LINE
-        assignment[(12,2)] = Domain.CIRCLE
-        assignment[(12,11)] = Domain.VERTICAL_LINE
-        assignment[(13,1)] = Domain.HORIZONTAL_LINE
-        assignment[(13,11)] = Domain.CIRCLE
-        assignment[(14,4)] = Domain.HORIZONTAL_LINE
-        assignment[(14,7)] = Domain.HORIZONTAL_LINE
-        assignment[(14,13)] = Domain.CIRCLE
+        assignment={}
+        if(difficulty == Difficulty.HARD):
+            if(self.size == 6):
+                assignment = libP.size6_hard()
+            if(self.size == 10):
+                assignment = libP.size10_hard()
+            if(self.size == 15):
+                assignment = libP.size15_Hard()
+        if(difficulty == Difficulty.MEDIUM):
+            if(self.size == 6):
+                assignment = libP.size6_medium()
+            if(self.size == 10):
+                assignment = libP.size10_medium()
+            if(self.size == 15):
+                assignment = libP.size15_medium()
         return assignment
     

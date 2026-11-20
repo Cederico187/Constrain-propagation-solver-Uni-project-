@@ -154,30 +154,34 @@ def eingabe():
             break
         except ValueError:
             print("Falsche Eingabe!")
+    print("Probleminstanz:\nSize=" + str(size) + "\nSchwierigkeit=" + str(difficulty)+"\n")
     if difficulty == "Normal":
         difficulty = csp.Difficulty.MEDIUM
     if difficulty == "Schwer":
-        difficulty = csp.Difficulty.MEDIUM
+        difficulty = csp.Difficulty.HARD
     return difficulty, size, loesen
     
 def make_puzzle(size ,difficulty) -> Tuple[csp.LollipopGitter, dict]:
     gitter = csp.LollipopGitter(size)
     start_assignment = gitter.build_puzzle(difficulty)
-    return (gitter,start_assignment)
+    return gitter,start_assignment
 
-def solve_puzzle(loesen, gitter, start_assignment, variable: Tuple[int,int], unassigned: list, domains: dict):
+def solve_puzzle(loesen, gitter, start_assignment, domains: dict):
+    print(gitter.toString(start_assignment))
     if loesen == "bs":
         solution = backtracking_search(gitter,start_assignment)
     if loesen == "fcs":
-        solution = forward_checking_search(gitter,start_assignment,variable, unassigned, domains)
+        solution = forward_checking_search(gitter,start_assignment, dict_copy(domains))
     if loesen == "fcsH":
         solution = forward_checking_search_with_heuristic(gitter,start_assignment,domains)
-    if loesen == "cs ":
+    if loesen == "cs":
         solution = complete_search(gitter,start_assignment,domains)
     # Logging(Ausgabe)
     # a) Probleminstanz
-    print("Probleminstanz:" + eingabe())
+    
     # b) Lösung, sofern der Solver nicht nach Erreichen des Zeitlimits die Suche abgegrochen hat
+    if(solution is not None):
+        print(gitter.toString(solution))
     """if dauer <= 60:
         print(gitter.toString(solution))
     else:
@@ -194,7 +198,8 @@ def solve_puzzle(loesen, gitter, start_assignment, variable: Tuple[int,int], una
 
 def main():
     difficulty, size, loesen = eingabe()
-    gitter, start_assignment, variable = make_puzzle(size,difficulty)
-    solve_puzzle(loesen, gitter, start_assignment, variable, unassigned:list, domains: dict)
+    gitter, start_assignment = make_puzzle(size,difficulty)
+
+    solve_puzzle(loesen, gitter, start_assignment, dict_copy(gitter.domains))
 
 main()
