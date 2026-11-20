@@ -245,7 +245,7 @@ class LollipopGitter():
                 raise LookupError("Every variable should have a domain assigned to it.")
 
     def toString(self, assignment: Dict):
-        # •, ─, │, ┼
+        # •, ─, │, ┼, ⎽, ·, ┴
         # string = "•─" * self.size + "•" + "\n"
         
         symbols = {
@@ -264,6 +264,11 @@ class LollipopGitter():
 
         string += "\n"
 
+        for i in range(self.size + 1):
+            string += "─" * (länge) + "┼"
+
+        string += "\n"
+
         for i in range(self.size):
             i_len = len(str(abs(i)))
 
@@ -274,8 +279,11 @@ class LollipopGitter():
                 string += "│"
                 string += " " * (länge - 1)
                 string += symbols.get(assignment.get((i, j)), " ")
+            
+            string += "│" + "\n"
 
-            string += "\n"
+        for i in range(self.size + 1):
+                    string += "─" * (länge) + "┴"
 
         return string
 
