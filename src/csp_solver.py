@@ -35,6 +35,7 @@ def backtracking_search(gitter : csp.LollipopGitter, assignment, start_time):
     for value in gitter.domains[first]:
         local_assignment = assignment.copy()
         local_assignment[first] = value
+        variablenbelegungen += 1
         # if we're still consistent, we recurse (continue)
         if gitter.consistent(first, local_assignment):
             variablenbelegungen += 1
@@ -85,9 +86,9 @@ def forward_checking_search(gitter: csp.LollipopGitter, assignment: dict, domain
     for value in domains[first]:
         local_assignment = assignment.copy()
         local_assignment[first] = value
+        variablenbelegungen += 1
         # if we're still consistent, we recurse (continue)
         if gitter.consistent(first, local_assignment):
-            variablenbelegungen += 1
             local_domains = dict_copy(domains)
             forward_check(gitter, local_assignment, first, unassigned, local_domains) 
             result = forward_checking_search(gitter, local_assignment, local_domains,start_time)
@@ -116,9 +117,9 @@ def forward_checking_search_with_heuristic(gitter: csp.LollipopGitter, assignmen
     for value in domains[first]:
         local_assignment = assignment.copy()
         local_assignment[first] = value
+        variablenbelegungen += 1
         # if we're still consistent, we recurse (continue)
         if gitter.consistent(first, local_assignment):
-            variablenbelegungen += 1
             local_domains = dict_copy(domains)
             forward_check(gitter, local_assignment, first, unassigned, local_domains) 
             result = forward_checking_search_with_heuristic(gitter, local_assignment, local_domains,start_time)
@@ -146,9 +147,9 @@ def complete_search(gitter: csp.LollipopGitter, assignment: dict ,domains: dict,
     for value in domains[first]:
         local_assignment = assignment.copy()
         local_assignment[first] = value
+        variablenbelegungen += 1
         # if we're still consistent, we recurse (continue)
         if gitter.consistent(first, local_assignment):
-            variablenbelegungen += 1
             local_domains = dict_copy(domains)
             forward_check(gitter, local_assignment, first,unassigned, local_domains)
             result = forward_checking_search_with_heuristic(gitter, local_assignment, local_domains,start_time)
@@ -188,7 +189,7 @@ def eingabe():
             break
         except ValueError:
             print("Falsche Eingabe!")
-    print("Probleminstanz:\nSize=" + str(size) + "\nSchwierigkeit=" + str(difficulty)+"\n")
+    print("Probleminstanz:\nSize=" + str(size) + "\nSchwierigkeit=" + str(difficulty)+"\n" + "Suchfunktion=" + str(loesen))
     if difficulty == "Normal":
         difficulty = csp.Difficulty.MEDIUM
     if difficulty == "Schwer":
