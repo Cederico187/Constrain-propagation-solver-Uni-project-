@@ -63,14 +63,16 @@ def forward_check(gitter: csp.LollipopGitter, assignment: dict, variable: Tuple[
     for constraint in gitter.constraints[variable]:
         var = constraint.cell
         if var in unassigned:
+            impossible_domains = []
             for possible_domain in domains[var]:
-                local_assignment = {variable: assignment[variable]}
-                local_assignment[var] = possible_domain
+                local_assignment = {variable: assignment[variable], var: possible_domain}
                 if not (constraint.satisfied(local_assignment)):
-                    domains[var].remove(possible_domain)
+                    impossible_domains.append(possible_domain)
+            for impossible_domain in impossible_domains:
+                if impossible_domain in domains[var]:
+                    domains[var].remove(impossible_domain)
 
 def forward_checking_search(gitter: csp.LollipopGitter, assignment: dict, domains: dict,start_time):
-    #TODO
     elapsed_time = time.time()-start_time
     global variablenbelegungen
     global backtracking_schritte
