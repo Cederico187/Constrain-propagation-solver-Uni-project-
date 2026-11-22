@@ -170,7 +170,7 @@ Um die Complete-Search zu optimieren haben wir probiert, Constraint-Propagation 
 Das Ergebnis war zwar reduzierte Anzahl an Backtrackingschritten, jedoch war die Laufzeit deutlich höher.
 Somit ist eine Forward-Checking-Suche mit Heuristik und Constraint-Propagation am Anfang die beste Methode um Lollipop-Puzzles zu lösen.
 
-\subsection{Revlexion}
+\subsection{Reflexion}
 
 Den eigentlichen CSP-Solver (csp\_builder.py, csp\_solver.py, puzzel\_lib.py) haben wir bewusst 
 ohne KI geschrieben. Nur die Datei visualizer.py haben wir mit Claude Opus auf Medium
@@ -188,9 +188,9 @@ Alle außer visualizer.py haben wir selbst geschrieben.
 Uns war es wieder sehr wichtig, das Problem ohne KI zu lösen. Um das Projekt ein bisschen schöner zu gestalten und beim Debuggen Hilfe zu kriegen haben wir uns 
 dieses hilfreiche Tool erstellen lassen. Es war ganz einfach. Immer wenn wir unseren Code verändert haben, haben wir Claude Opus auf Medium die Aufgabe gegeben 
 den Visualizer neu zu erstellen, 
-mithilfe unseres gesamten Code. Es hat meist auf anhieb geklappt. Dafür haben wir folgenden Prompt verwendet (Originalwortlaut):
+mithilfe unseres gesamten Codes. Es hat meist auf anhieb geklappt. Dafür haben wir folgenden Prompt verwendet (Originalwortlaut):
 
-all unserer Code und dann diese prompt:
+All unser Code und dann dieser Prompt:
 
 \"
 ich will null code von mir besser haben oder verändert
