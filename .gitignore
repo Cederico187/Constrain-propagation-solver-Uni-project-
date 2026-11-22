@@ -4,3 +4,4 @@ pyproject.toml
 uv.lock
 .idea
 __pycache__
+out

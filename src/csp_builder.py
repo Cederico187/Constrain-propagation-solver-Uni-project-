@@ -279,12 +279,15 @@ class RowColumnConstraint(Constraint):
 class LollipopGitter():
     
     def __init__(self, size : int):
+
         self.size = size
-        self.variables = list() # Liste der Zellen im Gitter
+        # Liste der Zellen im Gitter
+        self.variables = list()
         for i in range(size):
             for j in range(size):
                 self.variables.append((i, j))
-        self.domains = {V : list(Domain) for V in self.variables}   # Dict Mapping aller Zellen auf ihren Wertebereich
+        # Dict Mapping aller Zellen auf ihren Wertebereich
+        self.domains = {V : list(Domain) for V in self.variables}
         self.constraints = {}
         for variable in self.variables:
             self.constraints[variable] = []
@@ -347,13 +350,6 @@ class LollipopGitter():
                 return False
         return True
 
-    def possible(self, variable: Tuple[int,int], value: Domain, assignment: dict) -> bool:
-        test_assignment = assignment.copy()
-        test_assignment[variable] = value
-        if self.consistent(variable, test_assignment):
-            return True
-        else:
-            return False
 
     def build_puzzle(self, difficulty: Difficulty) -> Dict:
         self.difficulty = difficulty

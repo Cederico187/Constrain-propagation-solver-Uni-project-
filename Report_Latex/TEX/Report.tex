@@ -7,12 +7,28 @@
 \usepackage{amssymb}
 \usepackage{hyperref}
 \usepackage[margin=2cm]{geometry}
+\usepackage{listings}
+\usepackage{xcolor}
+
+
+
+\lstset{
+  language=Python,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue},
+  commentstyle=\color{gray},
+  stringstyle=\color{teal},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  breaklines=true,
+  frame=single
+}
 
 % Link zum Repo git clone 
 % Link tubloud: 
 % passwort tubcloud : 
 
-\title{Aufgabenblatt 1 \\ Gruppe 41}
+\title{Aufgabenblatt 2 \\ Gruppe 41}
 \author{
     Cedric Bertow
     \and
@@ -28,7 +44,7 @@
 
 \maketitle
 
-\textbf{zum Repository clonen:}
+\textbf{Link zum Repository: }
 
  
 
@@ -45,7 +61,8 @@
 
 \subsubsection{Lollipop-Puzzles}
 
-In einem Gitter müssen Lollipops platziert werden. Ein Lollipop ist ein Kreis (der "Kopf") verbunden mit
+In einem Gitter müssen Lollipops platziert werden.
+Ein Lollipop ist ein Kreis (der "Kopf") verbunden mit
 einer einzigen geraden Linie (der "Stab") in einer benachbarten Zelle, die in den Kreis mündet.
 
 Im Initialzustand sind bereits Köpfe und Stäbe vorgegeben. Diese müssen zu Lollipops vervollständigt
@@ -53,7 +70,97 @@ werden.
 
 \subsection{Softwaredesign}
 
+\subsubsection{Modellierung von Lollipop-Puzzles als CSP in Python}
+
+\paragraph{Theorie}
+
+In einem Lollipop-Puzzle sind die Zellen des Gitters die Variablen des CSP.
+Jeder Zelle muss einer von vier Werten(Leer, Vertikale Linie, Horizontale Linie, Kreis) zugewiesen werden.
+Jede Zelle hat die gleichen Constraints mit den Zellen in der gleichen Reihe und denen in der gleichen Spalte des Gitters.
+
+\paragraph{Lollipop-CSP in Python}
+
+In einer Klasse \glqq LollipopGitter\grqq{} speichern wir die relevanten Informationen des Puzzles.
+Ein Objekt der Klasse LollipopGitter wird mit angegebener Größe erstellt und erzeugt automatisch alle Variablen, Wertebereiche und Constraints.
+\begin{lstlisting}[label={lst:LollipopKonstruktor}]
+     def __init__(self, size : int):
+        self.size = size
+        # Liste der Zellen im Gitter
+        self.variables = list()
+        for i in range(size):
+            for j in range(size):
+                self.variables.append((i, j))
+        # Dict Mapping aller Zellen auf ihren Wertebereich
+        self.domains = {V : list(Domain) for V in self.variables}
+        self.constraints = {}
+        for variable in self.variables:
+            self.constraints[variable] = []
+            if variable not in self.domains:
+                raise LookupError("Every variable should have a domain assigned to it.")
+\end{lstlisting}
+Die Variablen werden im gesamten Programm als Tupel aus Integers dargestellt, wobei der erste Wert
+die Zeile und der zweite Wert die Spalte der Zelle im Gitter ist.
+Der Wertebereich ist für jede Variable eine Liste des Aufzählungstyps Domain.
+\begin{lstlisting}[label={lst:domain}]
+    class Domain(Enum):
+    CIRCLE = 0
+    HORIZONTAL_LINE = 1
+    VERTICAL_LINE = 2
+    EMPTY = 3
+\end{lstlisting}
+
+Constraints werden auch als Klasse modelliert.
+Für Lollipop Rätsel haben wir zwei verschiedene Arten von Constraints modelliert.
+Den AdjacentCellConstraint für Zellen, die orthogonal nebeneinander liegen und den RowColumnConstraint für alle Zellen in
+der Reihe und Spalte.
+Diese Klassen erben beide von der Klasse Constraint und unterscheiden sich nur in ihren Abfragen.
+\begin{lstlisting}[label={lst:ConstraintKlasse}]
+    class Constraint(ABC):
+    def __init__(self, variables: List):
+        self.variables = variables
+
+    @abstractmethod
+    def satisfied(self, assignment: Dict) -> bool:
+        pass
+\end{lstlisting}
+Um zu prüfen, ob ein Constraint erfüllt ist, muss eine Zuweisung(assignment) übergeben werden.
+Eine Zuweisung ist ein Python Dictionary, welches Variablen auf einen Wert des Wertebereichs abbildet.
+Diese Zuweisung wird in jeder Suchfunktion Lokal gespeichert und verändert und nicht im LollipopGitter gespeichert.\newline
+LollipopGitter hat außerdem noch zwei wichtige Funktionen.
+Die Funktion build\underbar puzzle() wird zum Erstellen eines Rätsels, also einer Startzuweisung benutzt.
+Die Funktion consistent() überprüft, ob nach Zuweisung einer neuen Variable, die Zuweisung aller Variablen noch gültig ist.
+\begin{lstlisting}[label={lst:consistent}]
+  def consistent(self, variable: Tuple[int,int], assignment: Dict) -> bool:
+        for constraint in self.constraints[variable]:
+            if not constraint.satisfied(assignment):
+                return False
+        return True
+\end{lstlisting}
+
+\subsubsection{Suchfunktionen}
+Wir haben folgende vier Suchfunktionen implementiert:
+\begin{description}
+    \item [Backtracking] Von oben links im Gitter anfangend wird über alle Variablen eine einfache Backtracking Suche ausgeführt.
+    \item[Forward-Checking] Struktur analog zu Backtracking, nachdem eine neue Variable belegt wird, werden alle Wertebereiche der umliegenden Zellen gekürzt.
+    \item[Forward-Checking mit Heuristik] Unterscheidet sich zum Vorgänger nur in der Reihenfolge der Zellen, welche untersucht werden.
+    Nach Minimum-Remaining-Values Heuristik wird immer die Zelle zuerst untersucht, welche am wenigsten mögliche Werte hat.
+    \item[Complete Search] Analog zum Vorgänger, nur am Anfang wird über das ganze Gitter mit Constraint Propagation 2-Konsistenz hergestellt.
+\end{description}
+
+
 \subsection{Darstellung der Leistungsmerkmale}
+Um die Suchfunktionen zu vergleichen haben wir drei Merkmale:
+\begin{description}
+    \item[Backtrackingschritte]
+    \item[Variablenbelegungen]
+    \item[Laufzeit]
+\end{description}
+Die Complete Search ist in allen Punkten dominant über jedes Puzzle.
+Genauso ist die Forward-Checking Suche mit Heuristik den beiden Vorgängern überlegen.
+Interessant ist, dass die Forward-Checking-Suche ohne Heuristik zwar weniger Variablenbelegungen prüft als die Backtracking-Suche aber trotzdem höhere Laufzeit hat.
+Um die Complete-Search zu optimieren haben wir probiert, Constraint-Propagation in jedem Schritt anzuwenden.
+Das Ergebnis war zwar reduzierte Anzahl an Backtrackingschritten, jedoch war die Laufzeit deutlich höher.
+Somit ist eine Forward-Checking-Suche mit Heuristik und Constraint-Propagation am Anfang die beste Methode um Lollipop-Puzzles zu lösen.
 
 \subsection{Revlexion}
 
