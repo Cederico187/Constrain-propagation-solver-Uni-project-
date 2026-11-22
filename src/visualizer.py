@@ -6,9 +6,10 @@ des Gitters und danach den kompletten "Denkpfad" einer Suche:
 jede Belegung, jeden verworfenen Wert, jeden Backtracking-Schritt und
 (bei Forward Checking / AC-3) die verbleibenden Domänen jeder Zelle.
 
-Wichtig: csp_builder.py und csp_solver.py werden NICHT verändert.
-  - Aus csp_solver.py werden nur Imports, Funktionen und Klassen geladen
-    (der Code auf Modulebene, der sofort ein Puzzle löst, wird übersprungen).
+Wichtig: csp_builder.py, csp_solver.py und puzzle_lib.py werden NICHT verändert.
+  - Aus csp_solver.py werden Imports, Funktionen, Klassen und einfache
+    Zuweisungen wie `variablenbelegungen = 0` geladen. Code mit Aufrufen auf
+    Modulebene (z.B. main() mit der input()-Abfrage) wird übersprungen.
   - Alle Funktionen aus csp_solver.py werden in einen protokollierenden
     Wrapper gepackt. Ein rekursiver Aufruf einer Suchfunktion = ein Knoten
     im Suchbaum, ein fehlgeschlagener Rückgabewert (None/False) = Backtracking.
@@ -23,14 +24,17 @@ Welche Suche visualisiert wird:
   - Überschreibbar per Kommandozeile:  --search backtracking_search
   - Im Fenster per Auswahlliste + "Suche starten".
   - Unterstützt jede Funktion in csp_solver.py mit "search" im Namen, z.B.
-    backtracking_search(gitter, assignment) oder
-    complete_search(gitter, assignment, domains) – Parameter mit "domain" im
-    Namen bekommen automatisch dict_copy(gitter.domains).
+    backtracking_search(gitter, assignment, start_time) oder
+    complete_search(gitter, assignment, domains, start_time). Aufgerufen wird wie
+    in eurem solve_puzzle(): "domain"-Parameter bekommen dict_copy(gitter.domains),
+    "time"-Parameter bekommen time.time() (siehe COMPENSATE_OVERHEAD).
+  - Eure eigenen Zähler (globale Variablen wie variablenbelegungen,
+    backtracking_schritte) werden live und im Ergebnis angezeigt.
 
-Gittergröße:
-  - Wird automatisch aus den Vorgaben in build_puzzle() erkannt
-    (größte Zeile/Spalte + 1, z.B. (24, 17) → 25×25).
-  - Erzwingen mit --size 15 oder im Fenster "auto" abwählen.
+Puzzles:
+  - Alle Puzzles, die euer build_puzzle() liefert (über puzzle_lib, je nach
+    Größe und Schwierigkeit), stehen im Fenster in der Auswahlliste "Puzzle".
+  - Konsole: --size 15 --difficulty hard, Liste mit --list.
 
 Ablauf:
   - Das Fenster öffnet sofort, die Suche läuft im Hintergrund und wird live
@@ -69,11 +73,7 @@ from pathlib import Path
 # Welche Suchfunktion aus csp_solver.py standardmäßig visualisiert wird.
 # Muss der Name einer Funktion in csp_solver.py sein.
 # ==========================================================================
-bs = "backtracking_search"
-fcs = "forward_checking_search"
-fcsH = "forward_checking_search_with_heuristic"
-cs = "complete_search"
-search_variant = cs
+search_variant = "forward_checking_search_with_heuristic"
 
 # Zeitlimit der Suche in Sekunden. None = kein Zeitlimit.
 TIME_LIMIT = None
@@ -121,10 +121,35 @@ def load_solver_functions(path: Path = HERE / "csp_solver.py") -> dict:
     source = path.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(path))
     keep = (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.ClassDef)
-    tree.body = [node for node in tree.body if isinstance(node, keep)]
+
+    def is_plain_assignment(node):
+        # z.B. "variablenbelegungen = 0": wird gebraucht, weil eure Funktionen
+        # mit `global variablenbelegungen` darauf zählen. Zuweisungen mit
+        # Funktionsaufrufen (z.B. main(), LollipopGitter(15)) werden NICHT ausgeführt.
+        return (isinstance(node, (ast.Assign, ast.AnnAssign))
+                and node.value is not None
+                and not any(isinstance(n, ast.Call) for n in ast.walk(node.value)))
+
+    body, counters = [], []
+    for node in tree.body:
+        if isinstance(node, keep):
+            body.append(node)
+        elif is_plain_assignment(node):
+            body.append(node)
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if isinstance(node.value, ast.Constant) and isinstance(node.value.value, int):
+                counters += [t.id for t in targets if isinstance(t, ast.Name)]
+    tree.body = body
     namespace = {"__name__": "csp_solver_visual", "__file__": str(path)}
     exec(compile(tree, str(path), "exec"), namespace)
+    namespace["__counter_names__"] = counters   # eure eigenen Zähler (globale int-Variablen)
     return namespace
+
+
+def solver_counters(namespace: dict) -> dict:
+    """Aktuelle Werte eurer globalen Zähler, z.B. {'variablenbelegungen': 123, ...}."""
+    return {name: namespace.get(name) for name in namespace.get("__counter_names__", [])
+            if isinstance(namespace.get(name), int)}
 
 
 def detect_size(path: Path = HERE / "csp_solver.py", fallback: int = 10) -> int:
@@ -144,6 +169,54 @@ def detect_size(path: Path = HERE / "csp_solver.py", fallback: int = 10) -> int:
                     and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, int)):
                 size = node.args[0].value
     return size or fallback
+
+
+PROBE_SIZES = range(2, 41)    # in diesen Größen wird nach Puzzles gesucht
+
+
+def list_puzzles(namespace: dict) -> list:
+    """Alle Puzzles, die build_puzzle() liefert, als [(Größe, Difficulty), ...].
+
+    Euer build_puzzle() wählt das Puzzle nach self.size und difficulty aus
+    (puzzle_lib). Deshalb wird jede Größe/Schwierigkeit einmal probeweise gebaut;
+    wo Vorgaben zurückkommen, gibt es ein Puzzle. Hängt das Ergebnis gar nicht
+    von der Größe ab, wird [] geliefert (dann greift detect_puzzle_size)."""
+    found = []
+    for difficulty in csp.Difficulty:
+        results = {}
+        for size in PROBE_SIZES:
+            try:
+                givens = probe_givens(namespace, size, difficulty)
+            except Exception:      # noqa: BLE001 – Größe wird nicht unterstützt
+                continue
+            if givens:
+                results[size] = givens
+        if len(results) == len(PROBE_SIZES) and len({tuple(sorted(g.items(), key=str))
+                                                       for g in results.values()}) == 1:
+            return []              # Puzzle unabhängig von der Größe
+        for size, givens in results.items():
+            if all(0 <= r < size and 0 <= c < size for r, c in givens):
+                found.append((size, difficulty))
+    return sorted(found, key=lambda x: (x[0], x[1].value))
+
+
+def probe_givens(namespace: dict, size: int, difficulty) -> dict:
+    """Ruft euer build_puzzle() für eine Größe auf, aber auf einem leeren
+    Probe-Gitter ohne Zellen – so werden keine (teuren) Constraints gebaut.
+    Klappt das nicht, wird das Gitter normal über make_puzzle gebaut."""
+    probe = csp.LollipopGitter.__new__(csp.LollipopGitter)
+    probe.size = size
+    probe.variables = []
+    probe.domains = {}
+    probe.constraints = {}
+    try:
+        return csp.LollipopGitter.build_puzzle(probe, difficulty)
+    except Exception:              # noqa: BLE001
+        return build_puzzle(namespace, size, difficulty)[1]
+
+
+def puzzle_label(size, difficulty) -> str:
+    return f"{size}×{size}  {difficulty.name}"
 
 
 def detect_puzzle_size(namespace: dict, difficulty) -> int:
@@ -170,11 +243,32 @@ def detect_puzzle_size(namespace: dict, difficulty) -> int:
     return needed
 
 
-def call_search(namespace: dict, func, gitter, assignment):
-    """Ruft die Suchfunktion mit (gitter, assignment) auf und füllt weitere
-    Pflicht-Parameter, deren Name 'domain' enthält, mit einer Kopie von
-    gitter.domains (über dict_copy aus csp_solver.py, falls vorhanden) –
-    genau wie z.B. `forward_checking_search(gitter, assignment, dict_copy(gitter.domains))`."""
+# Eure Suchfunktionen prüfen selbst `time.time() - start_time > 60`. Die Aufzeichnung
+# macht die Suche langsamer; damit euer Zeitlimit trotzdem dieselbe reine Suchzeit
+# misst wie ohne Visualizer, rechnet start_time die Aufzeichnungszeit heraus.
+# False = start_time ist einfach time.time() (Zeitlimit greift dann früher).
+COMPENSATE_OVERHEAD = True
+
+
+class _StartTime(float):
+    """Verhält sich wie die Zahl time.time(). Nur bei `time.time() - start_time`
+    wird die bisherige Aufzeichnungszeit abgezogen."""
+
+    def __new__(cls, value, recorder):
+        obj = float.__new__(cls, value)
+        obj.recorder = recorder
+        return obj
+
+    def __rsub__(self, other):
+        return float(other) - float(self) - self.recorder.overhead
+
+
+def call_search(namespace: dict, func, gitter, assignment, recorder=None):
+    """Ruft die Suchfunktion so auf wie euer solve_puzzle():
+      - gitter, assignment
+      - Parameter mit 'domain' im Namen  → dict_copy(gitter.domains)
+      - Parameter mit 'time' im Namen    → time.time()  (z.B. start_time)
+    """
     params = list(inspect.signature(func).parameters.values())
     extra = []
     for p in params[2:]:
@@ -185,9 +279,13 @@ def call_search(namespace: dict, func, gitter, assignment):
                 extra.append(namespace["dict_copy"](gitter.domains))
             else:
                 extra.append({cell: list(values) for cell, values in gitter.domains.items()})
+        elif "time" in p.name.lower():
+            now = time.time()
+            extra.append(_StartTime(now, recorder) if recorder and COMPENSATE_OVERHEAD else now)
         else:
+            name = getattr(func, "__wrapped__", func).__name__
             raise TypeError(f"Weiß nicht, was ich für den Parameter '{p.name}' von "
-                            f"{func.__name__}() übergeben soll.")
+                            f"{name}() übergeben soll.")
     return func(gitter, assignment, *extra)
 
 
@@ -498,6 +596,13 @@ class SearchRecorder:
 
         self.gitter.consistent = recording_consistent
 
+    @staticmethod
+    def _has_time_param(func):
+        try:
+            return any("time" in p for p in inspect.signature(func).parameters)
+        except (TypeError, ValueError):
+            return False
+
     def run(self):
         """Führt die Suche aus. Rückgabe: (Ergebnis, Status, Dauer in s)."""
         self._install()
@@ -505,7 +610,7 @@ class SearchRecorder:
         self._t0 = time.perf_counter()
         result = None
         try:
-            result = call_search(self.ns, func, self.gitter, dict(self.init_a))
+            result = call_search(self.ns, func, self.gitter, dict(self.init_a), self)
             if is_assignment(result) and result:  # noqa: SIM114
                 status = "gelöst"
             elif result is None or result is False:
@@ -523,6 +628,9 @@ class SearchRecorder:
             self.gitter.__dict__.pop("consistent", None)
         self.wall_time = time.perf_counter() - self._t0
         duration = max(0.0, self.wall_time - self.overhead)
+        self.counters = solver_counters(self.ns)
+        if status == "keine Lösung" and self.wall_time >= 59.5 and self._has_time_param(func):
+            status = "keine Lösung (vermutlich euer eingebautes Zeitlimit, elapsed_time > 60)"
 
         if self.outside:
             status += f" – Achtung: {self.outside} Vorgaben liegen außerhalb des Gitters"
@@ -558,6 +666,8 @@ class Trace:
         self.consistent_calls = recorder.consistent_calls
         self.domain_checks = recorder.domain_checks
         self.wall_time = recorder.wall_time
+        self.counters = recorder.counters
+        self.difficulty = getattr(gitter, "difficulty", None)
 
         # Kumulierte Kennzahlen pro Schritt (array statt Liste: 8 statt ~36 Byte pro Zahl)
         n = len(self.events)
@@ -634,7 +744,12 @@ def record_search(search_name, size, difficulty, max_steps, time_limit, on_recor
         raise SystemExit(f"Suchfunktion '{search_name}' gibt es in csp_solver.py nicht. "
                          f"Verfügbar: {', '.join(available_searches(namespace))}")
     if size is None:
-        size = detect_puzzle_size(namespace, difficulty)
+        puzzles = list_puzzles(namespace)
+        same = [p for p in puzzles if p[1] == difficulty]
+        if same or puzzles:
+            size, difficulty = (same or puzzles)[0]
+        else:
+            size = detect_puzzle_size(namespace, difficulty)
     gitter, start = build_puzzle(namespace, size, difficulty)
     recorder = SearchRecorder(namespace, search_name, gitter, start, max_steps, time_limit)
     if on_recorder:
@@ -667,13 +782,19 @@ class LiveView:
 def print_summary(trace):
     print("\nStartkonfiguration:")
     print(format_grid(trace.rows, trace.cols, trace.given))
-    print(f"\nSuche:                 {trace.search_name}")
+    diff = f", {trace.difficulty.name}" if trace.difficulty is not None else ""
+    print(f"\nPuzzle:                {trace.rows}×{trace.cols}{diff}")
+    print(f"Suche:                 {trace.search_name}")
     print(f"Ergebnis:              {trace.status}")
     print(f"Dauer der Suche:       ca. {trace.duration:.3f} s "
           f"(gesamt mit Aufzeichnung {trace.wall_time:.1f} s)")
     print(f"Variablenbelegungen:   {trace.assigns_cum[-1]}")
     print(f"verworfene Werte:      {trace.rejects_cum[-1]}")
     print(f"Backtracking-Schritte: {trace.backtracks_cum[-1]}")
+    if trace.counters:
+        print("Eure eigenen Zähler (globale Variablen in csp_solver.py):")
+        for name, value in trace.counters.items():
+            print(f"  {name}: {value}")
     title = "Lösung" if trace.status.startswith("gelöst") else "Letzter Zustand der Suche"
     print(f"\n{title}:")
     print(format_grid(trace.rows, trace.cols, trace.assignment_at(len(trace.events))))
@@ -895,22 +1016,19 @@ def run_gui(args, searches):
                          state="readonly", width=30).pack(side="left", fill="x", expand=True)
             pick2 = tk.Frame(side, bg=COLORS["panel"])
             pick2.pack(fill="x", pady=(2, 2))
-            label(pick2, "Größe", 10, "muted").pack(side="left")
-            self.size_var = tk.IntVar(value=args.size or 0)
-            self.auto_size = tk.BooleanVar(value=args.size is None)
-            self.size_box = tk.Spinbox(pick2, from_=2, to=100, textvariable=self.size_var, width=4,
-                       bg=COLORS["panel2"], fg=COLORS["text"], buttonbackground=COLORS["panel2"],
-                       insertbackground=COLORS["text"], relief="flat")
-            self.size_box.pack(side="left", padx=(4, 2))
-            tk.Checkbutton(pick2, text="auto", variable=self.auto_size, command=self.update_size_box,
-                           bg=COLORS["panel"], fg=COLORS["text"], selectcolor=COLORS["panel2"],
-                           activebackground=COLORS["panel"], activeforeground=COLORS["text"],
-                           highlightthickness=0).pack(side="left", padx=(0, 8))
-            self.update_size_box()
-            label(pick2, "Schwierigkeit", 10, "muted").pack(side="left")
-            self.diff_var = tk.StringVar(value=args.difficulty.name)
-            ttk.Combobox(pick2, textvariable=self.diff_var, state="readonly", width=8,
-                         values=[d.name for d in csp.Difficulty]).pack(side="left", padx=(4, 0))
+            # Puzzle-Auswahl: alle Puzzles, die euer build_puzzle() liefert
+            label(pick2, "Puzzle", 10, "muted").pack(side="left")
+            self.puzzles = {puzzle_label(sz, d): (sz, d) for sz, d in args.puzzles}
+            if args.size is not None:
+                start = puzzle_label(args.size, args.difficulty)
+            else:
+                same = [p for p in args.puzzles if p[1] == args.difficulty]
+                start = puzzle_label(*(same or args.puzzles)[0]) if args.puzzles else "automatisch"
+            if start not in self.puzzles:
+                self.puzzles[start] = (args.size, args.difficulty)
+            self.puzzle_var = tk.StringVar(value=start)
+            ttk.Combobox(pick2, textvariable=self.puzzle_var, state="readonly", width=16,
+                         values=list(self.puzzles)).pack(side="left", padx=(4, 0))
             self.btn_run = tk.Button(pick2, text="Suche starten", command=self.rerun,
                                      bg=COLORS["panel2"], fg=COLORS["text"], relief="flat",
                                      activebackground=COLORS["grid"], bd=0, padx=8, pady=3)
@@ -1023,11 +1141,6 @@ def run_gui(args, searches):
             # Suche sofort starten, sobald das Fenster steht
             self.root.after(50, self.rerun)
 
-        # ---------- Größe ----------
-        def update_size_box(self):
-            # "auto": Größe wird bei jedem Start aus build_puzzle() erkannt
-            self.size_box.config(state="disabled" if self.auto_size.get() else "normal")
-
         # ---------- Trace wechseln / neu aufzeichnen ----------
         def set_trace(self, new_trace):
             self.trace = new_trace
@@ -1041,7 +1154,9 @@ def run_gui(args, searches):
                      f"Dauer ca. {t.duration:.2f} s  ·  {fmt(self.total)} Schritte  ·  "
                      f"{fmt(t.consistent_calls)} consistent()-Aufrufe"
                      + (f", davon {fmt(t.domain_checks)} Domänen-Prüfungen" if t.domain_checks else "")
-                     + (f"\nGesamtzeit mit Aufzeichnung {t.wall_time:.1f} s" if t.wall_time > t.duration + 1 else ""))
+                     + (f"\nGesamtzeit mit Aufzeichnung {t.wall_time:.1f} s" if t.wall_time > t.duration + 1 else "")
+                     + ("\nEure Zähler: " + ", ".join(f"{k} = {fmt(v)}" for k, v in t.counters.items())
+                        if t.counters else ""))
             self.full_redraw()
 
         def rerun(self):
@@ -1053,13 +1168,7 @@ def run_gui(args, searches):
             if self.playing:
                 self.toggle_play()
             name = self.search_var.get()
-            size = None
-            if not self.auto_size.get():
-                try:
-                    size = int(self.size_var.get())
-                except (ValueError, tk.TclError):
-                    size = None
-            difficulty = csp.Difficulty[self.diff_var.get()]
+            size, difficulty = self.puzzles[self.puzzle_var.get()]
             self.btn_run.config(text="Abbrechen", state="normal")
             self.lbl_action.config(text="Baue Puzzle …", fg=COLORS["muted"])
             rec_box = {}
@@ -1098,14 +1207,15 @@ def run_gui(args, searches):
                 self.scale.configure(to=1)
                 self.lbl_info.config(text=f"{name}  ·  {self.trace.rows}×{self.trace.cols}  ·  "
                                           f"{limit_text(args.time_limit)}")
-                if self.auto_size.get():
-                    self.size_var.set(self.trace.rows)   # erkannte Größe anzeigen
                 self.full_redraw()
             else:
                 self.render()
             self.lbl_step.config(text=f"Suche läuft … {elapsed:.0f} s")
+            own = solver_counters(rec.ns)
+            own_text = ("\nEure Zähler: " + ", ".join(f"{k} = {fmt(v)}" for k, v in own.items())
+                        if own else "")
             self.lbl_action.config(text=f"{fmt(len(rec.events))} Schritte aufgezeichnet "
-                                        f"({approx_mb(len(rec.events))}).\n"
+                                        f"({approx_mb(len(rec.events))}).{own_text}\n"
                                         f"Danach kannst du sie Schritt für Schritt abspielen.",
                                    fg=COLORS["muted"])
             self.stat_labels["assign"].config(text=fmt(rec.n_assign))
@@ -1378,8 +1488,8 @@ def main():
     parser.add_argument("--search", default=search_variant,
                         help=f"Name der Suchfunktion in csp_solver.py (Standard: {search_variant})")
     parser.add_argument("--size", type=int, default=DEFAULT_SIZE,
-                        help="Gittergröße erzwingen (Standard: automatisch aus den "
-                             "Vorgaben in build_puzzle erkannt)")
+                        help="Puzzle-Größe, z.B. 15 (Standard: kleinstes Puzzle der gewählten "
+                             "Schwierigkeit aus build_puzzle/puzzle_lib)")
     parser.add_argument("--difficulty", default=DEFAULT_DIFFICULTY,
                         choices=[d.name for d in csp.Difficulty] + [d.name.lower() for d in csp.Difficulty],
                         help=f"Schwierigkeit (Standard: {DEFAULT_DIFFICULTY})")
@@ -1388,14 +1498,19 @@ def main():
                              "Arbeitsspeicher, siehe MAX_MEMORY_SHARE)")
     parser.add_argument("--time-limit", type=float, default=TIME_LIMIT,
                         help="Zeitlimit der Suche in Sekunden, 0 = keins (Standard: keins)")
-    parser.add_argument("--list", action="store_true", help="verfügbare Suchfunktionen anzeigen")
+    parser.add_argument("--list", action="store_true",
+                        help="verfügbare Suchfunktionen und Puzzles anzeigen")
     parser.add_argument("--no-gui", action="store_true", help="nur Konsolenausgabe, kein Fenster")
     args = parser.parse_args()
     args.difficulty = csp.Difficulty[args.difficulty.upper()]
 
-    searches = available_searches(load_solver_functions())
+    namespace = load_solver_functions()
+    searches = available_searches(namespace)
+    args.puzzles = list_puzzles(namespace)
     if args.list:
         print("Suchfunktionen in csp_solver.py:\n  " + "\n  ".join(searches))
+        print("Puzzles aus build_puzzle():\n  " +
+              ("\n  ".join(puzzle_label(*p) for p in args.puzzles) or "(Größe wird automatisch erkannt)"))
         return
 
     if not args.no_gui:
