@@ -43,7 +43,8 @@ def backtracking_search(gitter : csp.LollipopGitter, assignment, start_time):
             # if we didn't find the result, we will end up backtracking
             if result is not None:
                 return result
-    backtracking_schritte += 1
+            else:
+                backtracking_schritte += 1
     return None
 
 
@@ -97,7 +98,8 @@ def forward_checking_search(gitter: csp.LollipopGitter, assignment: dict, domain
         # if we didn't find the result, we will end up backtracking
             if result is not None:
                 return result
-    backtracking_schritte += 1
+            else:
+                backtracking_schritte += 1
     return None
 
 
@@ -214,7 +216,7 @@ def solve_puzzle(loesen, gitter, start_assignment, domains: dict):
     if loesen == "bs":
         solution = backtracking_search(gitter,start_assignment,start_time)
     if loesen == "fcs":
-        solution = forward_checking_search(gitter,start_assignment, dict_copy(domains),start_time)
+        solution = forward_checking_search(gitter,start_assignment, domains,start_time)
     if loesen == "fcsH":
         solution = forward_checking_search_with_heuristic(gitter,start_assignment,domains,start_time)
     if loesen == "cs":
