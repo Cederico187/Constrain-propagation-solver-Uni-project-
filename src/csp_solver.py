@@ -231,18 +231,6 @@ def solve_puzzle(loesen, gitter, start_assignment, domains: dict):
         print("Keine Loesung gefunden :(")
     print("Anzahl der Variablenbelegungen: " + str(variablenbelegungen))
     print("Anzahl der Backtrackingschritte: " + str(backtracking_schritte))
-    """if dauer <= 60:
-        print(gitter.toString(solution))
-    else:
-        print("Lösung ist wegen überschrittenen Zeitlimit abgebrochen")
-    # c) Dauer der Suche
-    print("Die Dauer der Lösungssuche beträgt"+ dauer +"Sekunden")
-    # d) Anzahl der Variablenbelegungen
-    print("Anzahl der Variablenbelegung:"+ variablenbelegung)
-    # e) Anzahl der Backtrackingschritte
-    print("Anzahl der Backtrackingschritte:"+ backtracking_schritte)
-    dauer, variablenbelegung, backtracking_schritte"""
-    #TODO: Dauer, variablenbelegung,backtrackingschritte
     
 
 def main():
