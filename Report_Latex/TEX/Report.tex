@@ -74,6 +74,8 @@ auch zu lange dauern.
 Jedes Gitter hat zusätzlich noch die Schwierigkeiten Normal und Schwer, die sich insofern unterscheiden, wie viele 
 unterschiedliche Lösung es für das Puzzle gibt (Bei schwer gibt es meistens nur bis zu einer richtigen Lösung und bei Normal mehrere).
 
+
+\newpage
 \subsection{Softwaredesign}
 
 \subsubsection{Modellierung von Lollipop-Puzzles als CSP in Python}
@@ -170,6 +172,39 @@ Somit ist eine Forward-Checking-Suche mit Heuristik und Constraint-Propagation a
 
 \subsection{Revlexion}
 
+Den eigentlichen CSP-Solver (csp\_builder.py, csp\_solver.py, puzzel\_lib.py) haben wir bewusst 
+ohne KI geschrieben. Nur die Datei visualizer.py haben wir mit Claude Opus auf Medium
+erstellen lassen. Sie zeigt die Startkonfiguration und den gesamten Suchpfad inklusive Backtracking 
+in einem eigenen Fenster und hat uns so beim Debuggen geholfen. Dafür haben wir Claude unseren 
+gesamten Code gegeben und den Visualizer nach jeder Änderung am Solver neu erzeugen lassen. Die KI 
+war sehr hilfreich und einfach zu benutzen: Meist entstand in unter zehn Minuten funktionierender Code, 
+den wir ohne Debugging einbinden konnten.
+
+\newpage
 \section{Reflexion}
 
+Unser Lollipop-Puzzle-Solver besteht aus vier Python-Dateien, die nach und nach entstanden sind: csp\_builder.py, csp\_solver.py, puzzel\_lib.py und visualizer.py. 
+Alle außer visualizer.py haben wir selbst geschrieben.
+Uns war es wieder sehr wichtig, das Problem ohne KI zu lösen. Um das Projekt ein bisschen schöner zu gestalten und beim Debuggen Hilfe zu kriegen haben wir uns 
+dieses hilfreiche Tool erstellen lassen. Es war ganz einfach. Immer wenn wir unseren Code verändert haben, haben wir Claude Opus auf Medium die Aufgabe gegeben 
+den Visualizer neu zu erstellen, 
+mithilfe unseres gesamten Code. Es hat meist auf anhieb geklappt. Dafür haben wir folgenden Prompt verwendet (Originalwortlaut):
+
+all unserer Code und dann diese prompt:
+
+\"
+ich will null code von mir besser haben oder verändert
+alles was am ende da sein soll ist eine neue python datei namens visualizer
+im gleichem Folder namens sec sind auch die anderen beiden dateien
+eins namens csp\_builder.py das andere namens csp\_solver.py
+dieses soll eine mapp von einem Gitter zeigen mit der start Konfiguration und danach den gesamten Denkpfad also das backtracking am besten mit schönem interface irgendwie was sinn macht
+das ganze soll auf einer extra canvis passieren
+\"
+
+Dazu sei gesagt, dass wir im Laufe der Zeit mehrere Versionen des Visualizers benötigt haben, die sich aber alle sehr ähnlich waren.
+
+Insgesamt war die KI sehr hilfreich und vor allem einfach zu benutzen. Meist hat sie uns in unter zehn Minuten 
+wirklich guten Code erstellt, den wir sofort und ohne Debugging einbinden konnten. 
+Den generierten Code haben wir allerdings nicht im Detail nachvollzogen, sondern nur 
+geprüft, ob die Visualisierung korrekt ist. Gerade deshalb war es uns wichtig, den eigentlichen Solver selbst zu schreiben.
 \end{document}
