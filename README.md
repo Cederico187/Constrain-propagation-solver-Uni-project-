@@ -8,7 +8,7 @@ oder im Terminal in den Folder "src" ud dort dann den Befehl: python3 csp_solver
 
 ## Visualizierer:
 
-Dieses Programm ist pur Ki, deshalb sind die angaben dort nicht die gleiche wie unsere. Aber die einzelnen schritte sind aus unserem verfahren entstanden.
+Dieses Programm ist mithilfe von Ki erstellt worden, deshalb sind die angaben dort nicht die gleiche wie unsere. Aber die einzelnen schritte sind aus unserem verfahren entstanden.
 Man kann sich das so vorstellen wie visualizer.py fürht unseren code aus und zeigt jeden einzelnen schritt in einer schönen canvis visualizierung.
 
 Diese kann man entweder per Comand: "make visual"
